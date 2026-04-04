@@ -50,6 +50,27 @@ describe('parseWarmOutput', () => {
     const result = parseWarmOutput(output);
     expect(result.error).toContain('No usage data');
   });
+
+  it('falls back to empty string when model is missing from valid usage response', () => {
+    const output = JSON.stringify({
+      result: 'OK',
+      usage: {
+        input_tokens: 1,
+        cache_read_input_tokens: 100,
+        cache_creation_input_tokens: 0,
+        output_tokens: 1,
+      },
+    });
+    const result = parseWarmOutput(output);
+    expect(result.model).toBe('');
+    expect(result.error).toBeNull();
+  });
+
+  it('falls back to empty string when model is missing from no-usage response', () => {
+    const output = JSON.stringify({ result: 'OK' });
+    const result = parseWarmOutput(output);
+    expect(result.model).toBe('');
+  });
 });
 
 describe('warmSession', () => {
@@ -100,5 +121,28 @@ describe('warmSession', () => {
 
     const result = await warmSession('timeout-id', 'Reply with only the word OK');
     expect(result.error).toContain('TIMEOUT');
+  });
+
+  it('returns costUsd 0 when CLI succeeds but output has parse error', async () => {
+    const jsonOutput = JSON.stringify({ result: 'OK' }); // No usage field
+
+    mockCp.execFile.mockImplementation((_cmd, _args, _opts, callback) => {
+      (callback as Function)(null, jsonOutput, '');
+      return {} as child_process.ChildProcess;
+    });
+
+    const result = await warmSession('abc-123', 'Reply with only the word OK');
+    expect(result.error).toContain('No usage data');
+    expect(result.costUsd).toBe(0);
+  });
+
+  it('returns error when CLI fails without stderr', async () => {
+    mockCp.execFile.mockImplementation((_cmd, _args, _opts, callback) => {
+      (callback as Function)(new Error('Command failed'), '', '');
+      return {} as child_process.ChildProcess;
+    });
+
+    const result = await warmSession('bad-id', 'Reply with only the word OK');
+    expect(result.error).toBe('Command failed');
   });
 });

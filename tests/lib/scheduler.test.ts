@@ -104,6 +104,22 @@ describe('Scheduler', () => {
       expect(mockWarmFn).not.toHaveBeenCalled();
     });
 
+    it('falls back to session model when result model is empty', async () => {
+      mockWarmFn.mockResolvedValueOnce({
+        sessionId: 'test-id',
+        usage: { inputTokens: 0, cacheReadInputTokens: 50000, cacheCreationInputTokens: 0, outputTokens: 3 },
+        model: '',
+        costUsd: 0.015,
+        error: null,
+      });
+
+      const session = makeSession({ nextWarmAt: Date.now() - 1000, model: 'claude-sonnet-4-6' });
+      const updated = await scheduler.tick([session], 'Reply with only the word OK');
+
+      expect(updated[0].warmingStatus).toBe('success');
+      expect(updated[0].model).toBe('claude-sonnet-4-6');
+    });
+
     it('marks session as error on warm failure', async () => {
       mockWarmFn.mockResolvedValueOnce({
         sessionId: 'test-id',
@@ -176,6 +192,28 @@ describe('Scheduler', () => {
       const session = makeSession({ nextWarmAt: Date.now() + 60_000 });
       const updated = scheduler.removeSession(session);
       expect(updated.nextWarmAt).toBeNull();
+    });
+  });
+
+  describe('stop', () => {
+    it('clears the timer when one is set', () => {
+      // Set a timer on the scheduler by accessing its private field
+      const timer = setInterval(() => {}, 1000);
+      (scheduler as unknown as { timer: ReturnType<typeof setInterval> | null }).timer = timer;
+
+      scheduler.stop();
+
+      expect((scheduler as unknown as { timer: ReturnType<typeof setInterval> | null }).timer).toBeNull();
+    });
+
+    it('is a no-op when no timer is set', () => {
+      // Ensure timer is null
+      (scheduler as unknown as { timer: ReturnType<typeof setInterval> | null }).timer = null;
+
+      // Should not throw
+      scheduler.stop();
+
+      expect((scheduler as unknown as { timer: ReturnType<typeof setInterval> | null }).timer).toBeNull();
     });
   });
 });

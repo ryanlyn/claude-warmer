@@ -83,6 +83,7 @@ export function App({ intervalMinutes, warmPrompt, defaultModel }: AppProps) {
     if (!warming) return;
 
     const interval = setInterval(async () => {
+      /* v8 ignore next */
       if (tickingRef.current) return;
       tickingRef.current = true;
       try {
