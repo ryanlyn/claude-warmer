@@ -649,6 +649,66 @@ describe('App', () => {
     expect(lastFrame()!).toBeDefined();
   });
 
+  it('interval change while warming reschedules sessions', async () => {
+    capturedOnSubmit = null;
+    const { stdin, lastFrame } = render(
+      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
+    );
+    await tick();
+
+    // Start warming
+    stdin.write('\r');
+    await tick();
+    expect(lastFrame()!).toContain('active');
+
+    // Change interval
+    stdin.write('i');
+    await tick();
+    expect(capturedOnSubmit).not.toBeNull();
+    capturedOnSubmit!('10');
+    await tick();
+    expect(lastFrame()!).toContain('10m');
+    // Sessions should be rescheduled with new interval
+    expect(lastFrame()!).toContain('active');
+  });
+
+  it('tick merges warming results while preserving user selection changes', async () => {
+    // Use a session that's cold (will be scheduled immediately by bootstrap)
+    mockSessions.discoverSessions.mockReturnValue([{
+      ...defaultSession(),
+      lastAssistantTimestamp: Date.now() - 2 * 60 * 60 * 1000,
+      isWarm: false,
+      selected: true,
+    }]);
+
+    // Mock warmSession to return a result that differs from initial state
+    const mockWarm = vi.mocked(warmerModule.warmSession);
+    mockWarm.mockResolvedValue({
+      sessionId: 'abc-123',
+      usage: { inputTokens: 0, cacheReadInputTokens: 80000, cacheCreationInputTokens: 2000, outputTokens: 5 },
+      model: 'claude-opus-4-6',
+      costUsd: 0.05,
+      error: null,
+    });
+
+    vi.useFakeTimers();
+    const { stdin, unmount } = render(
+      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
+    );
+
+    // Start warming - cold session gets nextWarmAt = now
+    stdin.write('\r');
+    await vi.advanceTimersByTimeAsync(50);
+
+    // Advance past tick interval - should trigger tick and warm the due session
+    await vi.advanceTimersByTimeAsync(30_000);
+    // Let the promise chain resolve
+    await vi.advanceTimersByTimeAsync(100);
+
+    unmount();
+    vi.useRealTimers();
+  });
+
   it('scroll updates when navigating up past visible area', async () => {
     const manySessions = Array.from({ length: 25 }, (_, i) => ({
       ...defaultSession(),
