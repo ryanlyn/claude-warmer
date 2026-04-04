@@ -23,25 +23,21 @@ function formatCountdown(nextWarmAt: number | null): string {
 }
 
 function StatusBadge({ session, warmingActive }: { session: Session; warmingActive: boolean }) {
-  const liveIndicator = session.isLive ? <Text color="green">● </Text> : <Text>  </Text>;
+  const isActivelyWarming = warmingActive && session.selected && session.isWarm;
+  const liveColor = isActivelyWarming ? 'green' : 'yellow';
+  const liveIndicator = session.isLive ? <Text color={liveColor}>● </Text> : <Text>  </Text>;
   if (session.isWarm) {
-    const isActivelyWarming = warmingActive && session.selected;
     return <>{liveIndicator}<Text color={isActivelyWarming ? 'green' : 'yellow'}>[warm]</Text></>;
   }
   return <>{liveIndicator}<Text dimColor>[cold]</Text></>;
 }
 
-function WarmingIndicator({ session }: { session: Session }) {
-  if (session.warmingStatus === 'warming') {
-    return <Text color="yellow">warming...</Text>;
-  }
-  if (session.warmingStatus === 'error') {
-    return <Text color="red">error</Text>;
-  }
-  if (session.warmingStatus === 'success') {
-    return <Text color="green">ok</Text>;
-  }
-  return <Text dimColor>idle</Text>;
+function formatCwd(cwd: string, width: number): string {
+  if (!cwd) return '';
+  const parts = cwd.split('/');
+  const short = parts[parts.length - 1] || parts[parts.length - 2] || cwd;
+  if (short.length > width - 1) return short.slice(0, width - 2) + '~';
+  return short;
 }
 
 export function SessionRow({ session, highlighted, nameWidth, warmingActive }: SessionRowProps) {
@@ -75,6 +71,9 @@ export function SessionRow({ session, highlighted, nameWidth, warmingActive }: S
       <Box width={10}>
         <Text color={rowColor} dimColor={isDim}>{session.sessionId.slice(0, 8)}</Text>
       </Box>
+      <Box width={14}>
+        <Text color={rowColor} dimColor={isDim}>{formatCwd(session.cwd, 14)}</Text>
+      </Box>
       <Box width={nameWidth}>
         <Text wrap="truncate-end" bold={highlighted} color={rowColor} dimColor={isDim} backgroundColor={bgColor}>
           {' '}{session.name}
@@ -97,9 +96,6 @@ export function SessionRow({ session, highlighted, nameWidth, warmingActive }: S
       </Box>
       <Box width={9} justifyContent="flex-end">
         <Text color={rowColor} dimColor={isDim}>{formatCountdown(session.nextWarmAt)}</Text>
-      </Box>
-      <Box width={10} justifyContent="flex-end">
-        <WarmingIndicator session={session} />
       </Box>
     </Box>
   );

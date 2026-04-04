@@ -9,7 +9,7 @@ describe('Footer', () => {
     const frame = lastFrame()!;
     expect(frame).toContain('toggle');
     expect(frame).toContain('warm all');
-    expect(frame).toContain('select warm');
+    expect(frame).toContain('select live');
     expect(frame).toContain('deselect all');
     expect(frame).toContain('prompt');
     expect(frame).toContain('copy id');

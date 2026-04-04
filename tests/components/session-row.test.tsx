@@ -102,23 +102,30 @@ describe('SessionRow', () => {
     expect(lastFrame()!).toContain('5');
   });
 
-  it('shows warming status', () => {
-    const { lastFrame } = render(<SessionRow session={makeSession({ warmingStatus: 'warming' })} highlighted={false} nameWidth={20} warmingActive={false} />);
-    expect(lastFrame()!).toContain('warming');
+  it('shows cwd directory name', () => {
+    const { lastFrame } = render(<SessionRow session={makeSession({ cwd: '/Users/ryan/dev/my-project' })} highlighted={false} nameWidth={20} warmingActive={false} />);
+    expect(lastFrame()!).toContain('my-project');
   });
 
-  it('shows error status in red', () => {
-    const { lastFrame } = render(
-      <SessionRow session={makeSession({ warmingStatus: 'error', lastWarmError: 'timeout' })} highlighted={false} nameWidth={20} warmingActive={false} />,
-    );
-    expect(lastFrame()!).toContain('error');
+  it('shows empty string for missing cwd', () => {
+    const { lastFrame } = render(<SessionRow session={makeSession({ cwd: '' })} highlighted={false} nameWidth={20} warmingActive={false} />);
+    expect(lastFrame()!).toContain('Test Session');
   });
 
-  it('shows success status in green', () => {
-    const { lastFrame } = render(
-      <SessionRow session={makeSession({ warmingStatus: 'success' })} highlighted={false} nameWidth={20} warmingActive={false} />,
-    );
-    expect(lastFrame()!).toContain('ok');
+  it('handles root path cwd', () => {
+    const { lastFrame } = render(<SessionRow session={makeSession({ cwd: '/' })} highlighted={false} nameWidth={20} warmingActive={false} />);
+    expect(lastFrame()!).toContain('Test Session');
+  });
+
+  it('handles trailing slash in cwd', () => {
+    const { lastFrame } = render(<SessionRow session={makeSession({ cwd: '/Users/ryan/dev/project/' })} highlighted={false} nameWidth={20} warmingActive={false} />);
+    expect(lastFrame()!).toContain('project');
+  });
+
+  it('truncates long cwd names', () => {
+    const { lastFrame } = render(<SessionRow session={makeSession({ cwd: '/Users/ryan/dev/very-long-directory-name-here' })} highlighted={false} nameWidth={20} warmingActive={false} />);
+    const frame = lastFrame()!;
+    expect(frame).toContain('~');
   });
 
   it('shows dash for next warm when not scheduled', () => {

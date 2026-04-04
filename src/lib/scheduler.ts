@@ -17,7 +17,7 @@ export class Scheduler {
   bootstrap(sessions: Session[]): Session[] {
     const now = Date.now();
     return sessions.map((s) => {
-      if (s.isLive || !s.selected) {
+      if (!s.selected) {
         return { ...s, nextWarmAt: null };
       }
       return { ...s, nextWarmAt: this.computeFirstWarmTime(s, now) };
@@ -44,7 +44,7 @@ export class Scheduler {
 
     for (let i = 0; i < updated.length; i++) {
       const s = updated[i];
-      if (!s.nextWarmAt || s.nextWarmAt > now || s.isLive || !s.selected) {
+      if (!s.nextWarmAt || s.nextWarmAt > now || !s.selected) {
         continue;
       }
 

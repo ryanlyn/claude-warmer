@@ -31,7 +31,7 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
   const schedulerRef = useRef<Scheduler>(new Scheduler(warmSession, initialInterval));
   const tickingRef = useRef(false);
 
-  const fixedColumns = 86;
+  const fixedColumns = 90;
   /* v8 ignore next */
   const nameWidth = Math.max(15, (stdout?.columns ?? 120) - fixedColumns);
   const visibleRows = Math.min((stdout?.rows ?? 24) - 6, 20);

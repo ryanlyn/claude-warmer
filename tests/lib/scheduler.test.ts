@@ -71,11 +71,11 @@ describe('Scheduler', () => {
       expect(result[0].nextWarmAt!).toBeLessThanOrEqual(Date.now());
     });
 
-    it('skips live sessions', () => {
+    it('schedules live sessions normally', () => {
       const session = makeSession({ isLive: true });
       const result = scheduler.bootstrap([session]);
       expect(result).toHaveLength(1);
-      expect(result[0].nextWarmAt).toBeNull();
+      expect(result[0].nextWarmAt).not.toBeNull();
     });
 
     it('skips deselected sessions', () => {
