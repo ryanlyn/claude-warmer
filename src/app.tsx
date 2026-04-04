@@ -31,7 +31,7 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
   const schedulerRef = useRef<Scheduler>(new Scheduler(warmSession, initialInterval));
   const tickingRef = useRef(false);
 
-  const fixedColumns = 84;
+  const fixedColumns = 86;
   /* v8 ignore next */
   const nameWidth = Math.max(15, (stdout?.columns ?? 120) - fixedColumns);
   const visibleRows = Math.min((stdout?.rows ?? 24) - 6, 20);
@@ -84,18 +84,15 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
   }, [warming]);
 
   const toggleWarming = useCallback(() => {
-    setWarming((prev) => {
-      if (!prev) {
-        setSessions((current) => schedulerRef.current.bootstrap(current));
-      } else {
-        setSessions((current) =>
-          current.map((s) => ({ ...s, nextWarmAt: null, warmingStatus: s.warmingStatus === 'warming' ? 'idle' : s.warmingStatus })),
-        );
-        schedulerRef.current.stop();
+    setWarming((prev) => !prev);
+    setSessions((current) => {
+      if (!warming) {
+        return schedulerRef.current.bootstrap(current);
       }
-      return !prev;
+      schedulerRef.current.stop();
+      return current.map((s) => ({ ...s, nextWarmAt: null, warmingStatus: s.warmingStatus === 'warming' ? 'idle' : s.warmingStatus }));
     });
-  }, []);
+  }, [warming]);
 
   const copySessionId = useCallback(() => {
     if (sessions.length === 0) return;

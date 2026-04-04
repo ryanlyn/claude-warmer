@@ -27,7 +27,7 @@ function makeTwoSessions() {
   return [
     {
       sessionId: 'abc-123',
-      name: 'Test Session 1',
+      name: 'Session One',
       projectDir: 'test',
       cwd: '/test',
       model: 'claude-opus-4-6',
@@ -47,7 +47,7 @@ function makeTwoSessions() {
     },
     {
       sessionId: 'def-456',
-      name: 'Test Session 2',
+      name: 'Session Two',
       projectDir: 'test',
       cwd: '/test',
       model: 'claude-sonnet-4-6',
@@ -162,8 +162,8 @@ describe('App', () => {
     stdin.write('a');
     await tick();
     const frame = lastFrame()!;
-    expect(frame).toContain('Test Session 1');
-    expect(frame).toContain('Test Session 2');
+    expect(frame).toContain('Session One');
+    expect(frame).toContain('Session Two');
   });
 
   it('deselects all on n key', async () => {
@@ -189,8 +189,8 @@ describe('App', () => {
     stdin.write('\x1B[B');
     await tick();
     const frame = lastFrame()!;
-    expect(frame).toContain('Test Session 1');
-    expect(frame).toContain('Test Session 2');
+    expect(frame).toContain('Session One');
+    expect(frame).toContain('Session Two');
   });
 
   it('navigates up with arrow key', async () => {
@@ -206,7 +206,7 @@ describe('App', () => {
     stdin.write('\x1B[A');
     await tick();
     const frame = lastFrame()!;
-    expect(frame).toContain('Test Session 1');
+    expect(frame).toContain('Session One');
   });
 
   it('does not navigate below last session', async () => {

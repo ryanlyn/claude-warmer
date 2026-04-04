@@ -44,11 +44,18 @@ describe('SessionRow', () => {
     expect(lastFrame()!).toContain('cold');
   });
 
-  it('shows warm badge (not live) for live sessions', () => {
+  it('shows live indicator and warm badge for live sessions', () => {
     const { lastFrame } = render(<SessionRow session={makeSession({ isLive: true, isWarm: true })} highlighted={false} nameWidth={20} warmingActive={false} />);
     const frame = lastFrame()!;
+    expect(frame).toContain('●');
     expect(frame).toContain('warm');
-    expect(frame).not.toContain('live');
+  });
+
+  it('does not show live indicator for non-live sessions', () => {
+    const { lastFrame } = render(<SessionRow session={makeSession({ isLive: false, isWarm: true })} highlighted={false} nameWidth={20} warmingActive={false} />);
+    const frame = lastFrame()!;
+    expect(frame).not.toContain('●');
+    expect(frame).toContain('warm');
   });
 
   it('shows model short name', () => {
@@ -173,11 +180,12 @@ describe('SessionRow', () => {
     expect(frame).toContain('$1.05');
   });
 
-  it('shows dash for warming cost on unselected cold sessions', () => {
-    const session = makeSession({ isWarm: false, isLive: false, selected: false });
+  it('shows warming cost for unselected cold sessions', () => {
+    const session = makeSession({ isWarm: false, isLive: false, selected: false, cacheReadTokens: 100000, cacheWriteTokens: 5000, model: 'claude-opus-4-6' });
     const { lastFrame } = render(<SessionRow session={session} highlighted={false} nameWidth={20} warmingActive={false} />);
     const frame = lastFrame()!;
-    expect(frame).toContain('-');
+    // 105000 tokens * $5 * 2 / 1M = $1.05
+    expect(frame).toContain('$1.05');
   });
 
   it('uses green text for actively warming rows', () => {
