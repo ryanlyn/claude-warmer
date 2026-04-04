@@ -11,7 +11,7 @@ export function Header({ warming, intervalMinutes, warmPrompt }: HeaderProps) {
   return (
     <Box flexDirection="column" marginBottom={1}>
       <Box>
-        <Text bold color="magenta">Claude Cache Warmer</Text>
+        <Text bold color="magenta">Claude Warmer</Text>
         <Text>  </Text>
         {warming ? (
           <Text bold color="green">active</Text>

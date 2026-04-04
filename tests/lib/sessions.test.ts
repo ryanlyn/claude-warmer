@@ -445,7 +445,7 @@ describe('discoverSessions', () => {
     expect(sessions[0].sessionId).toBe('valid');
   });
 
-  it('sorts sessions by total cached tokens descending', () => {
+  it('sorts sessions by active first, then cached tokens descending', () => {
     mockFs.existsSync.mockReturnValue(true);
     mockFs.readdirSync.mockImplementation((dirPath: fs.PathLike) => {
       const p = dirPath.toString();
@@ -453,7 +453,7 @@ describe('discoverSessions', () => {
         return ['my-project'] as unknown as fs.Dirent[];
       }
       if (p.includes('my-project')) {
-        return ['small.jsonl', 'large.jsonl'] as unknown as fs.Dirent[];
+        return ['small.jsonl', 'large.jsonl', 'cold.jsonl'] as unknown as fs.Dirent[];
       }
       if (p.endsWith('/sessions')) {
         return [] as unknown as fs.Dirent[];
@@ -466,7 +466,7 @@ describe('discoverSessions', () => {
         return [
           JSON.stringify({
             type: 'assistant',
-            message: { role: 'assistant', model: 'claude-sonnet-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 1000, cache_creation_input_tokens: 0, output_tokens: 1 } },
+            message: { role: 'assistant', model: 'claude-sonnet-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 1000, cache_creation_input_tokens: 500, output_tokens: 1 } },
             timestamp: new Date().toISOString(),
           }),
         ].join('\n');
@@ -480,13 +480,154 @@ describe('discoverSessions', () => {
           }),
         ].join('\n');
       }
+      if (p.endsWith('cold.jsonl')) {
+        return [
+          JSON.stringify({
+            type: 'assistant',
+            message: { role: 'assistant', model: 'claude-sonnet-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 200000, cache_creation_input_tokens: 10000, output_tokens: 10 } },
+            timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+          }),
+        ].join('\n');
+      }
       return '';
     });
 
     const sessions = discoverSessions('claude-sonnet-4-6');
-    expect(sessions).toHaveLength(2);
-    // Large session should come first
+    expect(sessions).toHaveLength(3);
+    // Active (warm) sessions first sorted by cached tokens, then cold
     expect(sessions[0].sessionId).toBe('large');
+    expect(sessions[0].isWarm).toBe(true);
     expect(sessions[1].sessionId).toBe('small');
+    expect(sessions[1].isWarm).toBe(true);
+    expect(sessions[2].sessionId).toBe('cold');
+    expect(sessions[2].isWarm).toBe(false);
+  });
+
+  it('sorts live sessions as active even if cold', () => {
+    mockFs.existsSync.mockReturnValue(true);
+    mockFs.readdirSync.mockImplementation((dirPath: fs.PathLike) => {
+      const p = dirPath.toString();
+      if (p.endsWith('/projects')) {
+        return ['my-project'] as unknown as fs.Dirent[];
+      }
+      if (p.includes('my-project')) {
+        return ['cold-session.jsonl', 'live-session.jsonl'] as unknown as fs.Dirent[];
+      }
+      if (p.endsWith('/sessions')) {
+        return ['999.json'] as unknown as fs.Dirent[];
+      }
+      return [] as unknown as fs.Dirent[];
+    });
+    mockFs.readFileSync.mockImplementation((filePath: fs.PathOrFileDescriptor) => {
+      const p = filePath.toString();
+      if (p.endsWith('cold-session.jsonl')) {
+        return [
+          JSON.stringify({
+            type: 'assistant',
+            message: { role: 'assistant', model: 'claude-sonnet-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 200000, cache_creation_input_tokens: 10000, output_tokens: 1 } },
+            timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+          }),
+        ].join('\n');
+      }
+      if (p.endsWith('live-session.jsonl')) {
+        return [
+          JSON.stringify({
+            type: 'assistant',
+            message: { role: 'assistant', model: 'claude-sonnet-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 1000, cache_creation_input_tokens: 500, output_tokens: 1 } },
+            timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+          }),
+        ].join('\n');
+      }
+      if (p.endsWith('999.json')) {
+        return JSON.stringify({ pid: 999, sessionId: 'live-session', cwd: '/test', startedAt: Date.now(), kind: 'interactive' });
+      }
+      return '';
+    });
+    vi.spyOn(process, 'kill').mockImplementation(() => true);
+
+    const sessions = discoverSessions('claude-sonnet-4-6');
+    expect(sessions).toHaveLength(2);
+    // Live session should be first (active) even though it has fewer tokens and is cold by timestamp
+    expect(sessions[0].sessionId).toBe('live-session');
+    expect(sessions[0].isLive).toBe(true);
+    expect(sessions[1].sessionId).toBe('cold-session');
+  });
+
+  it('filters out sessions with 0 total cached tokens', () => {
+    mockFs.existsSync.mockReturnValue(true);
+    mockFs.readdirSync.mockImplementation((dirPath: fs.PathLike) => {
+      const p = dirPath.toString();
+      if (p.endsWith('/projects')) {
+        return ['my-project'] as unknown as fs.Dirent[];
+      }
+      if (p.includes('my-project')) {
+        return ['empty-cache.jsonl', 'has-cache.jsonl'] as unknown as fs.Dirent[];
+      }
+      if (p.endsWith('/sessions')) {
+        return [] as unknown as fs.Dirent[];
+      }
+      return [] as unknown as fs.Dirent[];
+    });
+    mockFs.readFileSync.mockImplementation((filePath: fs.PathOrFileDescriptor) => {
+      const p = filePath.toString();
+      if (p.endsWith('empty-cache.jsonl')) {
+        return [
+          JSON.stringify({
+            type: 'assistant',
+            message: { role: 'assistant', model: 'claude-sonnet-4-6', usage: { input_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 1 } },
+            timestamp: new Date().toISOString(),
+          }),
+        ].join('\n');
+      }
+      if (p.endsWith('has-cache.jsonl')) {
+        return [
+          JSON.stringify({
+            type: 'assistant',
+            message: { role: 'assistant', model: 'claude-sonnet-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 5000, cache_creation_input_tokens: 0, output_tokens: 1 } },
+            timestamp: new Date().toISOString(),
+          }),
+        ].join('\n');
+      }
+      return '';
+    });
+
+    const sessions = discoverSessions('claude-sonnet-4-6');
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].sessionId).toBe('has-cache');
+  });
+
+  it('initializes warmCostUsd with estimated warm cost', () => {
+    mockFs.existsSync.mockReturnValue(true);
+    mockFs.readdirSync.mockImplementation((dirPath: fs.PathLike) => {
+      const p = dirPath.toString();
+      if (p.endsWith('/projects')) {
+        return ['my-project'] as unknown as fs.Dirent[];
+      }
+      if (p.includes('my-project')) {
+        return ['abc-123.jsonl'] as unknown as fs.Dirent[];
+      }
+      if (p.endsWith('/sessions')) {
+        return [] as unknown as fs.Dirent[];
+      }
+      return [] as unknown as fs.Dirent[];
+    });
+    mockFs.readFileSync.mockImplementation((filePath: fs.PathOrFileDescriptor) => {
+      const p = filePath.toString();
+      if (p.endsWith('abc-123.jsonl')) {
+        return [
+          JSON.stringify({
+            type: 'assistant',
+            message: { role: 'assistant', model: 'claude-sonnet-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 100000, cache_creation_input_tokens: 0, output_tokens: 1 } },
+            timestamp: new Date().toISOString(),
+          }),
+        ].join('\n');
+      }
+      return '';
+    });
+
+    const sessions = discoverSessions('claude-sonnet-4-6');
+    expect(sessions).toHaveLength(1);
+    // Warm session: 100k tokens * $3 * 0.1 / 1M = $0.03
+    expect(sessions[0].warmCostUsd).toBeCloseTo(0.03);
   });
 });

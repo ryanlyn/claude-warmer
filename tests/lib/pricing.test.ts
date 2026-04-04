@@ -3,6 +3,7 @@ import {
   getModelPricing,
   calcExpiryCost,
   calcWarmCost,
+  calcEstimatedWarmCost,
   formatUsd,
   shortenModelName,
 } from '../../src/lib/pricing.js';
@@ -95,6 +96,31 @@ describe('calcWarmCost', () => {
       'claude-sonnet-4-6',
     );
     expect(cost).toBeCloseTo(0.075075);
+  });
+});
+
+describe('calcEstimatedWarmCost', () => {
+  it('computes cache read cost for warm sessions', () => {
+    // 100k tokens at opus $5 * 0.1 = $0.50/MTok = $0.05
+    const cost = calcEstimatedWarmCost(100_000, true, 'claude-opus-4-6');
+    expect(cost).toBeCloseTo(0.05);
+  });
+
+  it('computes cache write cost for cold sessions', () => {
+    // 100k tokens at opus $5 * 2 = $10/MTok = $1.00
+    const cost = calcEstimatedWarmCost(100_000, false, 'claude-opus-4-6');
+    expect(cost).toBeCloseTo(1.0);
+  });
+
+  it('uses sonnet pricing', () => {
+    // 100k tokens at sonnet $3 * 0.1 = $0.03
+    const cost = calcEstimatedWarmCost(100_000, true, 'claude-sonnet-4-6');
+    expect(cost).toBeCloseTo(0.03);
+  });
+
+  it('returns 0 for 0 tokens', () => {
+    expect(calcEstimatedWarmCost(0, true, 'claude-opus-4-6')).toBe(0);
+    expect(calcEstimatedWarmCost(0, false, 'claude-opus-4-6')).toBe(0);
   });
 });
 

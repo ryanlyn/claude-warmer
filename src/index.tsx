@@ -7,7 +7,7 @@ import { App } from './app.js';
 const { values } = parseArgs({
   options: {
     interval: { type: 'string', short: 'i', default: '55' },
-    prompt: { type: 'string', default: 'Reply with only the word OK' },
+    prompt: { type: 'string', default: "Reply 'ok'" },
     model: { type: 'string', default: 'claude-sonnet-4-6' },
     help: { type: 'boolean', short: 'h', default: false },
   },

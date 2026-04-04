@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Box, useInput, useApp } from 'ink';
+import { Box, Text, useInput, useApp, useStdout } from 'ink';
+import { TextInput } from '@inkjs/ui';
+import { execSync } from 'node:child_process';
 import type { Session } from './lib/types.js';
 import { discoverSessions } from './lib/sessions.js';
 import { warmSession } from './lib/warmer.js';
@@ -14,13 +16,25 @@ interface AppProps {
   defaultModel: string;
 }
 
-export function App({ intervalMinutes, warmPrompt, defaultModel }: AppProps) {
+type EditingField = 'prompt' | 'interval' | null;
+
+export function App({ intervalMinutes: initialInterval, warmPrompt: initialPrompt, defaultModel }: AppProps) {
   const { exit } = useApp();
+  const { stdout } = useStdout();
   const [sessions, setSessions] = useState<Session[]>(() => discoverSessions(defaultModel));
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [warming, setWarming] = useState(false);
-  const schedulerRef = useRef<Scheduler>(new Scheduler(warmSession, intervalMinutes));
+  const [intervalMinutes, setIntervalMinutes] = useState(initialInterval);
+  const [warmPrompt, setWarmPrompt] = useState(initialPrompt);
+  const [editingField, setEditingField] = useState<EditingField>(null);
+  const [scrollOffset, setScrollOffset] = useState(0);
+  const schedulerRef = useRef<Scheduler>(new Scheduler(warmSession, initialInterval));
   const tickingRef = useRef(false);
+
+  const fixedColumns = 84;
+  /* v8 ignore next */
+  const nameWidth = Math.max(15, (stdout?.columns ?? 120) - fixedColumns);
+  const visibleRows = Math.min((stdout?.rows ?? 24) - 6, 20);
 
   const toggleSelection = useCallback((index: number) => {
     setSessions((prev) => {
@@ -41,12 +55,16 @@ export function App({ intervalMinutes, warmPrompt, defaultModel }: AppProps) {
     });
   }, [warming]);
 
-  const selectAll = useCallback(() => {
+  const selectActive = useCallback(() => {
     setSessions((prev) =>
       prev.map((s) => {
-        const updated = { ...s, selected: true };
+        const shouldSelect = s.isLive || s.isWarm;
+        const updated = { ...s, selected: shouldSelect };
         if (warming) {
-          return schedulerRef.current.addSession(updated);
+          if (shouldSelect) {
+            return schedulerRef.current.addSession(updated);
+          }
+          return schedulerRef.current.removeSession(updated);
         }
         return updated;
       }),
@@ -79,6 +97,18 @@ export function App({ intervalMinutes, warmPrompt, defaultModel }: AppProps) {
     });
   }, []);
 
+  const copySessionId = useCallback(() => {
+    if (sessions.length === 0) return;
+    const session = sessions[highlightedIndex];
+    /* v8 ignore next */
+    if (!session) return;
+    try {
+      execSync(`printf '%s' '${session.sessionId}' | pbcopy`);
+    } catch {
+      // silently ignore clipboard errors
+    }
+  }, [sessions, highlightedIndex]);
+
   useEffect(() => {
     if (!warming) return;
 
@@ -108,13 +138,13 @@ export function App({ intervalMinutes, warmPrompt, defaultModel }: AppProps) {
       return;
     }
 
-    if (input === 'w') {
+    if (key.return) {
       toggleWarming();
       return;
     }
 
     if (input === 'a') {
-      selectAll();
+      selectActive();
       return;
     }
 
@@ -123,7 +153,22 @@ export function App({ intervalMinutes, warmPrompt, defaultModel }: AppProps) {
       return;
     }
 
-    if (input === ' ' || key.return) {
+    if (input === 'p') {
+      setEditingField('prompt');
+      return;
+    }
+
+    if (input === 'i') {
+      setEditingField('interval');
+      return;
+    }
+
+    if (input === 'c') {
+      copySessionId();
+      return;
+    }
+
+    if (input === ' ') {
       if (sessions.length > 0) {
         toggleSelection(highlightedIndex);
       }
@@ -131,20 +176,62 @@ export function App({ intervalMinutes, warmPrompt, defaultModel }: AppProps) {
     }
 
     if (key.upArrow) {
-      setHighlightedIndex((prev) => Math.max(0, prev - 1));
+      setHighlightedIndex((prev) => {
+        const next = Math.max(0, prev - 1);
+        setScrollOffset((offset) => {
+          if (next < offset) return next;
+          return offset;
+        });
+        return next;
+      });
       return;
     }
 
     if (key.downArrow) {
-      setHighlightedIndex((prev) => Math.min(sessions.length - 1, prev + 1));
+      setHighlightedIndex((prev) => {
+        const next = Math.min(sessions.length - 1, prev + 1);
+        setScrollOffset((offset) => {
+          if (next >= offset + visibleRows) return next - visibleRows + 1;
+          return offset;
+        });
+        return next;
+      });
       return;
     }
-  });
+  }, { isActive: editingField === null });
+
+  const handlePromptSubmit = useCallback((value: string) => {
+    if (value.trim()) {
+      setWarmPrompt(value.trim());
+    }
+    setEditingField(null);
+  }, []);
+
+  const handleIntervalSubmit = useCallback((value: string) => {
+    const parsed = parseInt(value, 10);
+    if (!isNaN(parsed) && parsed >= 1 && parsed <= 59) {
+      setIntervalMinutes(parsed);
+      schedulerRef.current = new Scheduler(warmSession, parsed);
+    }
+    setEditingField(null);
+  }, []);
 
   return (
     <Box flexDirection="column">
       <Header warming={warming} intervalMinutes={intervalMinutes} warmPrompt={warmPrompt} />
-      <SessionTable sessions={sessions} highlightedIndex={highlightedIndex} />
+      <SessionTable sessions={sessions} highlightedIndex={highlightedIndex} scrollOffset={scrollOffset} nameWidth={nameWidth} />
+      {editingField === 'prompt' && (
+        <Box>
+          <Text bold color="cyan">Prompt: </Text>
+          <TextInput defaultValue={warmPrompt} onSubmit={handlePromptSubmit} />
+        </Box>
+      )}
+      {editingField === 'interval' && (
+        <Box>
+          <Text bold color="cyan">Interval (minutes): </Text>
+          <TextInput defaultValue={String(intervalMinutes)} onSubmit={handleIntervalSubmit} />
+        </Box>
+      )}
       <Footer />
     </Box>
   );

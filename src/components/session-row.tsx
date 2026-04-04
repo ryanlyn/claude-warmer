@@ -6,6 +6,7 @@ import { formatUsd, shortenModelName } from '../lib/pricing.js';
 interface SessionRowProps {
   session: Session;
   highlighted: boolean;
+  nameWidth: number;
 }
 
 function formatTokens(n: number): string {
@@ -43,10 +44,12 @@ function WarmingIndicator({ session }: { session: Session }) {
   return <Text dimColor>idle</Text>;
 }
 
-export function SessionRow({ session, highlighted }: SessionRowProps) {
+export function SessionRow({ session, highlighted, nameWidth }: SessionRowProps) {
   const cachedTotal = session.cacheReadTokens + session.cacheWriteTokens;
   const selectChar = session.selected ? '>' : ' ';
   const bgColor = highlighted ? 'gray' : undefined;
+  const isCold = !session.isWarm && !session.isLive;
+  const isDim = isCold || !session.selected;
 
   return (
     <Box>
@@ -58,32 +61,37 @@ export function SessionRow({ session, highlighted }: SessionRowProps) {
       <Box width={7}>
         <StatusBadge session={session} />
       </Box>
-      <Box width={20}>
-        <Text wrap="truncate-end" bold={highlighted} dimColor={!session.selected} backgroundColor={bgColor}>
+      <Box width={10}>
+        <Text dimColor={isDim}>{session.sessionId.slice(0, 8)}</Text>
+      </Box>
+      <Box width={nameWidth}>
+        <Text wrap="truncate-end" bold={highlighted} dimColor={isDim} backgroundColor={bgColor}>
           {' '}{session.name}
         </Text>
       </Box>
       <Box width={10}>
-        <Text dimColor={!session.selected}>{shortenModelName(session.model)}</Text>
+        <Text dimColor={isDim}>{shortenModelName(session.model)}</Text>
       </Box>
       <Box width={10} justifyContent="flex-end">
-        <Text dimColor={!session.selected}>{formatTokens(cachedTotal)}</Text>
-      </Box>
-      <Box width={12} justifyContent="flex-end">
-        <Text dimColor={!session.selected}>{formatUsd(session.expiryCostUsd)}</Text>
+        <Text dimColor={isDim}>{formatTokens(cachedTotal)}</Text>
       </Box>
       <Box width={10} justifyContent="flex-end">
-        <Text dimColor={!session.selected}>
+        <Text dimColor={isDim}>
+          {session.isWarm || session.isLive ? formatUsd(session.expiryCostUsd) : '-'}
+        </Text>
+      </Box>
+      <Box width={10} justifyContent="flex-end">
+        <Text dimColor={isDim}>
           {session.selected ? formatUsd(session.warmCostUsd) : '-'}
         </Text>
       </Box>
-      <Box width={7} justifyContent="flex-end">
-        <Text dimColor={!session.selected}>{session.selected ? String(session.warmCount) : '-'}</Text>
+      <Box width={6} justifyContent="flex-end">
+        <Text dimColor={isDim}>{session.selected ? String(session.warmCount) : '-'}</Text>
+      </Box>
+      <Box width={9} justifyContent="flex-end">
+        <Text dimColor={isDim}>{formatCountdown(session.nextWarmAt)}</Text>
       </Box>
       <Box width={10} justifyContent="flex-end">
-        <Text dimColor={!session.selected}>{formatCountdown(session.nextWarmAt)}</Text>
-      </Box>
-      <Box width={12} justifyContent="flex-end">
         <WarmingIndicator session={session} />
       </Box>
     </Box>
