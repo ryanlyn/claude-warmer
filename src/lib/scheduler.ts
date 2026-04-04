@@ -65,7 +65,6 @@ export class Scheduler {
           ...updated[i],
           warmingStatus: 'success',
           warmCount: s.warmCount + 1,
-          warmCostUsd: s.warmCostUsd + result.costUsd,
           lastWarmedAt: warmTime,
           lastWarmError: null,
           nextWarmAt: warmTime + this.intervalMs,

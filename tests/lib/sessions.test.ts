@@ -706,7 +706,7 @@ describe('discoverSessions', () => {
 
     const sessions = discoverSessions('claude-sonnet-4-6');
     expect(sessions).toHaveLength(1);
-    // Warm session: 100k tokens * $3 * 0.1 / 1M = $0.03
-    expect(sessions[0].warmCostUsd).toBeCloseTo(0.03);
+    // warmCostUsd is now always initialized to 0 (static display computed in session-row)
+    expect(sessions[0].warmCostUsd).toBe(0);
   });
 });
