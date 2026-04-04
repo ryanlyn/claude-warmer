@@ -9,24 +9,29 @@ interface ParsedOutput {
 }
 
 export function parseWarmOutput(stdout: string): ParsedOutput {
-  let parsed: Record<string, unknown>;
+  const emptyUsage: SessionUsage = { inputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, outputTokens: 0 };
+
+  let data: unknown;
   try {
-    parsed = JSON.parse(stdout);
+    data = JSON.parse(stdout);
   } catch {
-    return {
-      usage: { inputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, outputTokens: 0 },
-      model: '',
-      error: `Failed to parse CLI output: ${stdout.slice(0, 100)}`,
-    };
+    return { usage: emptyUsage, model: '', error: `Failed to parse CLI output: ${stdout.slice(0, 100)}` };
   }
 
-  const usage = parsed.usage as Record<string, number> | undefined;
+  // Output is a JSON array of events. Find the result and assistant entries.
+  const entries = Array.isArray(data) ? data : [data];
+  const resultEntry = entries.find((e: Record<string, unknown>) => e.type === 'result') as Record<string, unknown> | undefined;
+  const assistantEntry = entries.find((e: Record<string, unknown>) => e.type === 'assistant') as Record<string, unknown> | undefined;
+
+  const model = (assistantEntry?.message as Record<string, unknown>)?.model as string || '';
+
+  if (!resultEntry) {
+    return { usage: emptyUsage, model, error: 'No result entry in response' };
+  }
+
+  const usage = resultEntry.usage as Record<string, number> | undefined;
   if (!usage) {
-    return {
-      usage: { inputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, outputTokens: 0 },
-      model: (parsed.model as string) || '',
-      error: 'No usage data in response',
-    };
+    return { usage: emptyUsage, model, error: 'No usage data in response' };
   }
 
   return {
@@ -36,7 +41,7 @@ export function parseWarmOutput(stdout: string): ParsedOutput {
       cacheCreationInputTokens: usage.cache_creation_input_tokens || 0,
       outputTokens: usage.output_tokens || 0,
     },
-    model: (parsed.model as string) || '',
+    model,
     error: null,
   };
 }
