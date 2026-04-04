@@ -1,12 +1,13 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import type { Session } from '../lib/types.js';
-import { formatUsd, shortenModelName } from '../lib/pricing.js';
+import { formatUsd, shortenModelName, calcEstimatedWarmCost } from '../lib/pricing.js';
 
 interface SessionRowProps {
   session: Session;
   highlighted: boolean;
   nameWidth: number;
+  warmingActive: boolean;
 }
 
 function formatTokens(n: number): string {
@@ -21,12 +22,10 @@ function formatCountdown(nextWarmAt: number | null): string {
   return `${minutes}m`;
 }
 
-function StatusBadge({ session }: { session: Session }) {
-  if (session.isLive) {
-    return <Text color="blue">[live]</Text>;
-  }
+function StatusBadge({ session, warmingActive }: { session: Session; warmingActive: boolean }) {
   if (session.isWarm) {
-    return <Text color="green">[warm]</Text>;
+    const isActivelyWarming = warmingActive && session.selected;
+    return <Text color={isActivelyWarming ? 'green' : 'yellow'}>[warm]</Text>;
   }
   return <Text dimColor>[cold]</Text>;
 }
@@ -44,52 +43,63 @@ function WarmingIndicator({ session }: { session: Session }) {
   return <Text dimColor>idle</Text>;
 }
 
-export function SessionRow({ session, highlighted, nameWidth }: SessionRowProps) {
+export function SessionRow({ session, highlighted, nameWidth, warmingActive }: SessionRowProps) {
   const cachedTotal = session.cacheReadTokens + session.cacheWriteTokens;
   const selectChar = session.selected ? '>' : ' ';
   const bgColor = highlighted ? 'gray' : undefined;
   const isCold = !session.isWarm && !session.isLive;
-  const isDim = isCold || !session.selected;
+  const isActivelyWarming = warmingActive && session.selected && session.isWarm;
+  const rowColor = isActivelyWarming ? 'green' : undefined;
+  const isDim = isActivelyWarming ? false : (isCold || !session.selected);
+
+  const expiryCost = isCold ? '-' : formatUsd(session.expiryCostUsd);
+
+  let warmingCost: string;
+  if (isCold) {
+    if (session.selected) {
+      warmingCost = formatUsd(calcEstimatedWarmCost(cachedTotal, false, session.model));
+    } else {
+      warmingCost = '-';
+    }
+  } else {
+    warmingCost = session.selected ? formatUsd(session.warmCostUsd) : '-';
+  }
 
   return (
     <Box>
       <Box width={2}>
-        <Text color={highlighted ? 'cyan' : undefined} backgroundColor={bgColor}>
+        <Text color={highlighted ? 'cyan' : rowColor} backgroundColor={bgColor}>
           {selectChar}
         </Text>
       </Box>
       <Box width={7}>
-        <StatusBadge session={session} />
+        <StatusBadge session={session} warmingActive={warmingActive} />
       </Box>
       <Box width={10}>
-        <Text dimColor={isDim}>{session.sessionId.slice(0, 8)}</Text>
+        <Text color={rowColor} dimColor={isDim}>{session.sessionId.slice(0, 8)}</Text>
       </Box>
       <Box width={nameWidth}>
-        <Text wrap="truncate-end" bold={highlighted} dimColor={isDim} backgroundColor={bgColor}>
+        <Text wrap="truncate-end" bold={highlighted} color={rowColor} dimColor={isDim} backgroundColor={bgColor}>
           {' '}{session.name}
         </Text>
       </Box>
       <Box width={10}>
-        <Text dimColor={isDim}>{shortenModelName(session.model)}</Text>
+        <Text color={rowColor} dimColor={isDim}>{shortenModelName(session.model)}</Text>
       </Box>
       <Box width={10} justifyContent="flex-end">
-        <Text dimColor={isDim}>{formatTokens(cachedTotal)}</Text>
+        <Text color={rowColor} dimColor={isDim}>{formatTokens(cachedTotal)}</Text>
       </Box>
       <Box width={10} justifyContent="flex-end">
-        <Text dimColor={isDim}>
-          {session.isWarm || session.isLive ? formatUsd(session.expiryCostUsd) : '-'}
-        </Text>
+        <Text color={rowColor} dimColor={isDim}>{expiryCost}</Text>
       </Box>
       <Box width={10} justifyContent="flex-end">
-        <Text dimColor={isDim}>
-          {session.selected ? formatUsd(session.warmCostUsd) : '-'}
-        </Text>
+        <Text color={rowColor} dimColor={isDim}>{warmingCost}</Text>
       </Box>
       <Box width={6} justifyContent="flex-end">
-        <Text dimColor={isDim}>{session.selected ? String(session.warmCount) : '-'}</Text>
+        <Text color={rowColor} dimColor={isDim}>{session.selected ? String(session.warmCount) : '-'}</Text>
       </Box>
       <Box width={9} justifyContent="flex-end">
-        <Text dimColor={isDim}>{formatCountdown(session.nextWarmAt)}</Text>
+        <Text color={rowColor} dimColor={isDim}>{formatCountdown(session.nextWarmAt)}</Text>
       </Box>
       <Box width={10} justifyContent="flex-end">
         <WarmingIndicator session={session} />

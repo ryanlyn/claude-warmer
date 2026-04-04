@@ -8,6 +8,7 @@ interface SessionTableProps {
   highlightedIndex: number;
   scrollOffset: number;
   nameWidth: number;
+  warmingActive: boolean;
 }
 
 function ColumnHeader({ label, width, align }: { label: string; width: number; align?: 'right' }) {
@@ -18,7 +19,7 @@ function ColumnHeader({ label, width, align }: { label: string; width: number; a
   );
 }
 
-export function SessionTable({ sessions, highlightedIndex, scrollOffset, nameWidth }: SessionTableProps) {
+export function SessionTable({ sessions, highlightedIndex, scrollOffset, nameWidth, warmingActive }: SessionTableProps) {
   const { stdout } = useStdout();
   const visibleRows = Math.min((stdout?.rows ?? 24) - 6, 20);
   const visibleSessions = sessions.slice(scrollOffset, scrollOffset + visibleRows);
@@ -32,8 +33,8 @@ export function SessionTable({ sessions, highlightedIndex, scrollOffset, nameWid
         <ColumnHeader label="Session Name" width={nameWidth} />
         <ColumnHeader label="Model" width={10} />
         <ColumnHeader label="Cached" width={10} align="right" />
-        <ColumnHeader label="Expiry" width={10} align="right" />
-        <ColumnHeader label="Est. Cost" width={10} align="right" />
+        <ColumnHeader label="Exp. Cost" width={10} align="right" />
+        <ColumnHeader label="Warm Cost" width={10} align="right" />
         <ColumnHeader label="Warms" width={6} align="right" />
         <ColumnHeader label="Next" width={9} align="right" />
         <ColumnHeader label="Status" width={10} align="right" />
@@ -49,6 +50,7 @@ export function SessionTable({ sessions, highlightedIndex, scrollOffset, nameWid
             session={session}
             highlighted={scrollOffset + index === highlightedIndex}
             nameWidth={nameWidth}
+            warmingActive={warmingActive}
           />
         ))
       )}

@@ -25,6 +25,11 @@ export function Header({ warming, intervalMinutes, warmPrompt }: HeaderProps) {
         <Text dimColor>prompt: </Text>
         <Text>&quot;{warmPrompt}&quot;</Text>
       </Box>
+      <Box>
+        <Text color="green">■</Text><Text dimColor> green = warming active    </Text>
+        <Text color="yellow">■</Text><Text dimColor> orange = warm (idle)    </Text>
+        <Text dimColor>■ dim = cold (expired)</Text>
+      </Box>
     </Box>
   );
 }

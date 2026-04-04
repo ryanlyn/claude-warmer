@@ -38,4 +38,14 @@ describe('Header', () => {
     );
     expect(lastFrame()!).toContain('Say hi');
   });
+
+  it('shows color legend', () => {
+    const { lastFrame } = render(
+      <Header warming={false} intervalMinutes={55} warmPrompt="Reply with only the word OK" />,
+    );
+    const frame = lastFrame()!;
+    expect(frame).toContain('warming active');
+    expect(frame).toContain('warm (idle)');
+    expect(frame).toContain('cold (expired)');
+  });
 });
