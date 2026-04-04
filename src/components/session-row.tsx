@@ -51,12 +51,9 @@ export function SessionRow({ session, highlighted, nameWidth, warmingActive }: S
 
   const expiryCost = isCold ? '-' : formatUsd(session.expiryCostUsd);
 
-  let warmingCost: string;
-  if (isCold) {
-    warmingCost = formatUsd(calcEstimatedWarmCost(cachedTotal, false, session.model));
-  } else {
-    warmingCost = session.selected ? formatUsd(session.warmCostUsd) : '-';
-  }
+  const warmingCost = isCold
+    ? formatUsd(calcEstimatedWarmCost(cachedTotal, false, session.model))
+    : formatUsd(calcEstimatedWarmCost(cachedTotal, true, session.model));
 
   return (
     <Box>

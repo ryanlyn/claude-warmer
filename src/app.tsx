@@ -121,30 +121,8 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
           });
         });
         const updated = await schedulerRef.current.tick(snapshot, warmPrompt);
-        /* v8 ignore start -- async merge inside setInterval cannot be reliably reached with fake timers */
-        setSessions((current) =>
-          current.map((s) => {
-            const warmed = updated.find((u) => u.sessionId === s.sessionId);
-            if (!warmed || warmed === s) return s;
-            // Only apply warming-related fields; preserve user-driven state
-            if (warmed.warmingStatus === s.warmingStatus && warmed.warmCount === s.warmCount) return s;
-            return {
-              ...s,
-              warmingStatus: warmed.warmingStatus,
-              warmCount: warmed.warmCount,
-              warmCostUsd: warmed.warmCostUsd,
-              lastWarmedAt: warmed.lastWarmedAt,
-              lastWarmError: warmed.lastWarmError,
-              nextWarmAt: s.selected ? warmed.nextWarmAt : null,
-              cacheReadTokens: warmed.cacheReadTokens,
-              cacheWriteTokens: warmed.cacheWriteTokens,
-              expiryCostUsd: warmed.expiryCostUsd,
-              isWarm: warmed.isWarm,
-              model: warmed.model,
-            };
-          }),
-        );
-        /* v8 ignore stop */
+        /* v8 ignore next */
+        setSessions(updated);
       } finally {
         tickingRef.current = false;
       }

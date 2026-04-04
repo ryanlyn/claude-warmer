@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import type { Session } from './types.js';
-import { calcExpiryCost, calcEstimatedWarmCost } from './pricing.js';
+import { calcExpiryCost } from './pricing.js';
 import { WARM_THRESHOLD_MS } from './types.js';
 
 interface ParsedSession {
@@ -155,7 +155,7 @@ export function discoverSessions(defaultModel: string): Session[] {
         expiryCostUsd: calcExpiryCost(cachedTokens, model),
         selected: isWarm,
         warmingStatus: 'idle',
-        warmCostUsd: calcEstimatedWarmCost(cachedTokens, isWarm, model),
+        warmCostUsd: 0,
         warmCount: 0,
         nextWarmAt: null,
         lastWarmedAt: null,
