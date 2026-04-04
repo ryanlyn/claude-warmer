@@ -31,14 +31,14 @@ function makeSession(overrides: Partial<Session> = {}): Session {
 describe('SessionTable', () => {
   it('renders column headers', () => {
     const { lastFrame } = render(
-      <SessionTable sessions={[]} highlightedIndex={0} scrollOffset={0} nameWidth={20} />,
+      <SessionTable sessions={[]} highlightedIndex={0} scrollOffset={0} nameWidth={20} warmingActive={false} />,
     );
     const frame = lastFrame()!;
     expect(frame).toContain('Session Name');
     expect(frame).toContain('Model');
     expect(frame).toContain('Cached');
-    expect(frame).toContain('Expiry');
-    expect(frame).toContain('Est. Cost');
+    expect(frame).toContain('Exp. Cost');
+    expect(frame).toContain('Warm Cost');
     expect(frame).toContain('Warms');
     expect(frame).toContain('Next');
     expect(frame).toContain('Status');
@@ -51,7 +51,7 @@ describe('SessionTable', () => {
       makeSession({ sessionId: 'bbbbbbbb-2', name: 'Session Beta' }),
     ];
     const { lastFrame } = render(
-      <SessionTable sessions={sessions} highlightedIndex={0} scrollOffset={0} nameWidth={20} />,
+      <SessionTable sessions={sessions} highlightedIndex={0} scrollOffset={0} nameWidth={20} warmingActive={false} />,
     );
     const frame = lastFrame()!;
     expect(frame).toContain('Session Alpha');
@@ -60,7 +60,7 @@ describe('SessionTable', () => {
 
   it('shows empty state when no sessions', () => {
     const { lastFrame } = render(
-      <SessionTable sessions={[]} highlightedIndex={0} scrollOffset={0} nameWidth={20} />,
+      <SessionTable sessions={[]} highlightedIndex={0} scrollOffset={0} nameWidth={20} warmingActive={false} />,
     );
     expect(lastFrame()!).toContain('No sessions found');
   });
@@ -70,7 +70,7 @@ describe('SessionTable', () => {
       makeSession({ sessionId: `session-${String(i).padStart(3, '0')}`, name: `Session ${i}` }),
     );
     const { lastFrame } = render(
-      <SessionTable sessions={sessions} highlightedIndex={5} scrollOffset={5} nameWidth={20} />,
+      <SessionTable sessions={sessions} highlightedIndex={5} scrollOffset={5} nameWidth={20} warmingActive={false} />,
     );
     const frame = lastFrame()!;
     expect(frame).toContain('Session 5');
@@ -82,10 +82,19 @@ describe('SessionTable', () => {
       makeSession({ sessionId: 'bbbb0002', name: 'Second' }),
     ];
     const { lastFrame } = render(
-      <SessionTable sessions={sessions} highlightedIndex={1} scrollOffset={0} nameWidth={20} />,
+      <SessionTable sessions={sessions} highlightedIndex={1} scrollOffset={0} nameWidth={20} warmingActive={false} />,
     );
     const frame = lastFrame()!;
     expect(frame).toContain('First');
     expect(frame).toContain('Second');
+  });
+
+  it('passes warmingActive to session rows', () => {
+    const sessions = [makeSession({ isWarm: true, selected: true })];
+    const { lastFrame } = render(
+      <SessionTable sessions={sessions} highlightedIndex={0} scrollOffset={0} nameWidth={20} warmingActive={true} />,
+    );
+    const frame = lastFrame()!;
+    expect(frame).toContain('[warm]');
   });
 });

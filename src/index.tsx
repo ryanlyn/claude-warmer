@@ -35,6 +35,8 @@ if (isNaN(intervalMinutes) || intervalMinutes < 1 || intervalMinutes > 59) {
   process.exit(1);
 }
 
+process.stdout.write('\x1B[2J\x1B[H');
+
 render(
   <App
     intervalMinutes={intervalMinutes}

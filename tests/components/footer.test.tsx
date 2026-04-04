@@ -7,11 +7,10 @@ describe('Footer', () => {
   it('renders keybinding help text', () => {
     const { lastFrame } = render(<Footer />);
     const frame = lastFrame()!;
-    expect(frame).toContain('space');
     expect(frame).toContain('toggle');
-    expect(frame).toContain('enter');
-    expect(frame).toContain('warm');
-    expect(frame).toContain('active');
+    expect(frame).toContain('warm all');
+    expect(frame).toContain('select warm');
+    expect(frame).toContain('deselect all');
     expect(frame).toContain('prompt');
     expect(frame).toContain('copy id');
     expect(frame).toContain('quit');

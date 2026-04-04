@@ -13,10 +13,10 @@ function KeyHint({ keyName, label }: { keyName: string; label: string }) {
 export function Footer() {
   return (
     <Box borderStyle="round" borderColor="gray" paddingX={1}>
+      <KeyHint keyName="enter" label="warm all" />
       <KeyHint keyName="space" label="toggle" />
-      <KeyHint keyName="enter" label="warm" />
-      <KeyHint keyName="a" label="active" />
-      <KeyHint keyName="n" label="none" />
+      <KeyHint keyName="a" label="select warm" />
+      <KeyHint keyName="n" label="deselect all" />
       <KeyHint keyName="i" label="interval" />
       <KeyHint keyName="p" label="prompt" />
       <KeyHint keyName="c" label="copy id" />

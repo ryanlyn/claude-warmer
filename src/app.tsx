@@ -219,7 +219,7 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
   return (
     <Box flexDirection="column">
       <Header warming={warming} intervalMinutes={intervalMinutes} warmPrompt={warmPrompt} />
-      <SessionTable sessions={sessions} highlightedIndex={highlightedIndex} scrollOffset={scrollOffset} nameWidth={nameWidth} />
+      <SessionTable sessions={sessions} highlightedIndex={highlightedIndex} scrollOffset={scrollOffset} nameWidth={nameWidth} warmingActive={warming} />
       {editingField === 'prompt' && (
         <Box>
           <Text bold color="cyan">Prompt: </Text>
