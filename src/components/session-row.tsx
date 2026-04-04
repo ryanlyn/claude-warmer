@@ -23,11 +23,12 @@ function formatCountdown(nextWarmAt: number | null): string {
 }
 
 function StatusBadge({ session, warmingActive }: { session: Session; warmingActive: boolean }) {
+  const liveIndicator = session.isLive ? <Text color="green">● </Text> : <Text>  </Text>;
   if (session.isWarm) {
     const isActivelyWarming = warmingActive && session.selected;
-    return <Text color={isActivelyWarming ? 'green' : 'yellow'}>[warm]</Text>;
+    return <>{liveIndicator}<Text color={isActivelyWarming ? 'green' : 'yellow'}>[warm]</Text></>;
   }
-  return <Text dimColor>[cold]</Text>;
+  return <>{liveIndicator}<Text dimColor>[cold]</Text></>;
 }
 
 function WarmingIndicator({ session }: { session: Session }) {
@@ -56,11 +57,7 @@ export function SessionRow({ session, highlighted, nameWidth, warmingActive }: S
 
   let warmingCost: string;
   if (isCold) {
-    if (session.selected) {
-      warmingCost = formatUsd(calcEstimatedWarmCost(cachedTotal, false, session.model));
-    } else {
-      warmingCost = '-';
-    }
+    warmingCost = formatUsd(calcEstimatedWarmCost(cachedTotal, false, session.model));
   } else {
     warmingCost = session.selected ? formatUsd(session.warmCostUsd) : '-';
   }
@@ -72,7 +69,7 @@ export function SessionRow({ session, highlighted, nameWidth, warmingActive }: S
           {selectChar}
         </Text>
       </Box>
-      <Box width={7}>
+      <Box width={9}>
         <StatusBadge session={session} warmingActive={warmingActive} />
       </Box>
       <Box width={10}>

@@ -28,7 +28,7 @@ export function SessionTable({ sessions, highlightedIndex, scrollOffset, nameWid
     <Box flexDirection="column">
       <Box>
         <Box width={2}><Text> </Text></Box>
-        <Box width={7}><Text> </Text></Box>
+        <Box width={9}><Text> </Text></Box>
         <ColumnHeader label="ID" width={10} />
         <ColumnHeader label="Session Name" width={nameWidth} />
         <ColumnHeader label="Model" width={10} />

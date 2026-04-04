@@ -553,6 +553,85 @@ describe('discoverSessions', () => {
     expect(sessions[1].sessionId).toBe('cold-session');
   });
 
+  it('sorts by three tiers: live first, then warm, then cold', () => {
+    mockFs.existsSync.mockReturnValue(true);
+    mockFs.readdirSync.mockImplementation((dirPath: fs.PathLike) => {
+      const p = dirPath.toString();
+      if (p.endsWith('/projects')) {
+        return ['my-project'] as unknown as fs.Dirent[];
+      }
+      if (p.includes('my-project')) {
+        return ['warm-session.jsonl', 'cold-session.jsonl', 'live-a.jsonl', 'live-b.jsonl'] as unknown as fs.Dirent[];
+      }
+      if (p.endsWith('/sessions')) {
+        return ['998.json', '999.json'] as unknown as fs.Dirent[];
+      }
+      return [] as unknown as fs.Dirent[];
+    });
+    mockFs.readFileSync.mockImplementation((filePath: fs.PathOrFileDescriptor) => {
+      const p = filePath.toString();
+      if (p.endsWith('cold-session.jsonl')) {
+        return [
+          JSON.stringify({
+            type: 'assistant',
+            message: { role: 'assistant', model: 'claude-sonnet-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 200000, cache_creation_input_tokens: 10000, output_tokens: 1 } },
+            timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+          }),
+        ].join('\n');
+      }
+      if (p.endsWith('warm-session.jsonl')) {
+        return [
+          JSON.stringify({
+            type: 'assistant',
+            message: { role: 'assistant', model: 'claude-sonnet-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 50000, cache_creation_input_tokens: 1000, output_tokens: 1 } },
+            timestamp: new Date().toISOString(),
+          }),
+        ].join('\n');
+      }
+      if (p.endsWith('live-a.jsonl')) {
+        return [
+          JSON.stringify({
+            type: 'assistant',
+            message: { role: 'assistant', model: 'claude-sonnet-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 1000, cache_creation_input_tokens: 500, output_tokens: 1 } },
+            timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+          }),
+        ].join('\n');
+      }
+      if (p.endsWith('live-b.jsonl')) {
+        return [
+          JSON.stringify({
+            type: 'assistant',
+            message: { role: 'assistant', model: 'claude-sonnet-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 2000, cache_creation_input_tokens: 500, output_tokens: 1 } },
+            timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+          }),
+        ].join('\n');
+      }
+      if (p.endsWith('998.json')) {
+        return JSON.stringify({ pid: 998, sessionId: 'live-a', cwd: '/test', startedAt: Date.now(), kind: 'interactive' });
+      }
+      if (p.endsWith('999.json')) {
+        return JSON.stringify({ pid: 999, sessionId: 'live-b', cwd: '/test', startedAt: Date.now(), kind: 'interactive' });
+      }
+      return '';
+    });
+    vi.spyOn(process, 'kill').mockImplementation(() => true);
+
+    const sessions = discoverSessions('claude-sonnet-4-6');
+    expect(sessions).toHaveLength(4);
+    // Two live sessions sorted by cached tokens desc
+    expect(sessions[0].sessionId).toBe('live-b');
+    expect(sessions[0].isLive).toBe(true);
+    expect(sessions[1].sessionId).toBe('live-a');
+    expect(sessions[1].isLive).toBe(true);
+    // Then warm
+    expect(sessions[2].sessionId).toBe('warm-session');
+    expect(sessions[2].isWarm).toBe(true);
+    expect(sessions[2].isLive).toBe(false);
+    // Then cold
+    expect(sessions[3].sessionId).toBe('cold-session');
+    expect(sessions[3].isWarm).toBe(false);
+  });
+
   it('filters out sessions with 0 total cached tokens', () => {
     mockFs.existsSync.mockReturnValue(true);
     mockFs.readdirSync.mockImplementation((dirPath: fs.PathLike) => {
