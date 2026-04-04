@@ -97,6 +97,38 @@ describe('parseJsonlFile', () => {
     expect(result).toBeNull();
   });
 
+  it('skips empty lines in JSONL content', () => {
+    const lines = [
+      '',
+      JSON.stringify({
+        type: 'assistant',
+        message: { role: 'assistant', model: 'claude-opus-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 1000, cache_creation_input_tokens: 0, output_tokens: 1 } },
+        timestamp: '2026-04-04T17:00:00.000Z',
+      }),
+      '',
+      '   ',
+    ].join('\n');
+
+    const result = parseJsonlFile(lines, 'abc-123');
+    expect(result).not.toBeNull();
+    expect(result!.cacheReadTokens).toBe(1000);
+  });
+
+  it('handles assistant message without timestamp', () => {
+    const lines = [
+      JSON.stringify({
+        type: 'assistant',
+        message: { role: 'assistant', model: 'claude-opus-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 5000, cache_creation_input_tokens: 0, output_tokens: 1 } },
+        timestamp: 12345,
+      }),
+    ].join('\n');
+
+    const result = parseJsonlFile(lines, 'abc-123');
+    expect(result).not.toBeNull();
+    // timestamp is not a string, so lastTimestamp stays at 0
+    expect(result!.lastAssistantTimestamp).toBe(0);
+  });
+
   it('uses the last assistant message for usage data', () => {
     const lines = [
       JSON.stringify({
@@ -182,5 +214,279 @@ describe('discoverSessions', () => {
     expect(sessions[0].cwd).toBe('/home/user/project');
     expect(sessions[0].isLive).toBe(false);
     expect(sessions[0].isWarm).toBe(true);
+  });
+
+  it('handles sessions dir not existing for loadPidFiles', () => {
+    mockFs.existsSync.mockImplementation((p: fs.PathLike) => {
+      const s = p.toString();
+      if (s.endsWith('/projects')) return true;
+      if (s.endsWith('/sessions')) return false;
+      return false;
+    });
+    mockFs.readdirSync.mockImplementation((dirPath: fs.PathLike) => {
+      const p = dirPath.toString();
+      if (p.endsWith('/projects')) {
+        return ['my-project'] as unknown as fs.Dirent[];
+      }
+      if (p.includes('my-project')) {
+        return ['abc-123.jsonl'] as unknown as fs.Dirent[];
+      }
+      return [] as unknown as fs.Dirent[];
+    });
+    mockFs.readFileSync.mockImplementation((filePath: fs.PathOrFileDescriptor) => {
+      const p = filePath.toString();
+      if (p.endsWith('abc-123.jsonl')) {
+        return [
+          JSON.stringify({
+            type: 'assistant',
+            message: { role: 'assistant', model: 'claude-opus-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 1000, cache_creation_input_tokens: 0, output_tokens: 1 } },
+            timestamp: new Date().toISOString(),
+          }),
+        ].join('\n');
+      }
+      return '';
+    });
+
+    const sessions = discoverSessions('claude-sonnet-4-6');
+    expect(sessions).toHaveLength(1);
+    // No PID info, so cwd should be empty and isLive false
+    expect(sessions[0].cwd).toBe('');
+    expect(sessions[0].isLive).toBe(false);
+  });
+
+  it('handles corrupt PID JSON files gracefully', () => {
+    mockFs.existsSync.mockReturnValue(true);
+    mockFs.readdirSync.mockImplementation((dirPath: fs.PathLike) => {
+      const p = dirPath.toString();
+      if (p.endsWith('/projects')) {
+        return ['my-project'] as unknown as fs.Dirent[];
+      }
+      if (p.includes('my-project')) {
+        return ['abc-123.jsonl'] as unknown as fs.Dirent[];
+      }
+      if (p.endsWith('/sessions')) {
+        return ['bad.json'] as unknown as fs.Dirent[];
+      }
+      return [] as unknown as fs.Dirent[];
+    });
+    mockFs.readFileSync.mockImplementation((filePath: fs.PathOrFileDescriptor) => {
+      const p = filePath.toString();
+      if (p.endsWith('abc-123.jsonl')) {
+        return [
+          JSON.stringify({
+            type: 'assistant',
+            message: { role: 'assistant', model: 'claude-opus-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 1000, cache_creation_input_tokens: 0, output_tokens: 1 } },
+            timestamp: new Date().toISOString(),
+          }),
+        ].join('\n');
+      }
+      if (p.endsWith('bad.json')) {
+        return 'NOT VALID JSON!!!';
+      }
+      return '';
+    });
+
+    const sessions = discoverSessions('claude-sonnet-4-6');
+    // Should still discover the session, just without PID info
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].cwd).toBe('');
+  });
+
+  it('handles readFileSync errors on JSONL files', () => {
+    mockFs.existsSync.mockReturnValue(true);
+    mockFs.readdirSync.mockImplementation((dirPath: fs.PathLike) => {
+      const p = dirPath.toString();
+      if (p.endsWith('/projects')) {
+        return ['my-project'] as unknown as fs.Dirent[];
+      }
+      if (p.includes('my-project')) {
+        return ['abc-123.jsonl'] as unknown as fs.Dirent[];
+      }
+      if (p.endsWith('/sessions')) {
+        return [] as unknown as fs.Dirent[];
+      }
+      return [] as unknown as fs.Dirent[];
+    });
+    mockFs.readFileSync.mockImplementation(() => {
+      throw new Error('EACCES');
+    });
+
+    const sessions = discoverSessions('claude-sonnet-4-6');
+    // Should skip the unreadable file
+    expect(sessions).toHaveLength(0);
+  });
+
+  it('handles readdirSync errors on project directories', () => {
+    mockFs.existsSync.mockReturnValue(true);
+    mockFs.readdirSync.mockImplementation((dirPath: fs.PathLike) => {
+      const p = dirPath.toString();
+      if (p.endsWith('/projects')) {
+        return ['bad-project'] as unknown as fs.Dirent[];
+      }
+      if (p.endsWith('/sessions')) {
+        return [] as unknown as fs.Dirent[];
+      }
+      // Throw for the project directory itself
+      throw new Error('EACCES');
+    });
+
+    const sessions = discoverSessions('claude-sonnet-4-6');
+    // Should skip the unreadable project dir
+    expect(sessions).toHaveLength(0);
+  });
+
+  it('uses defaultModel when session model is empty', () => {
+    mockFs.existsSync.mockReturnValue(true);
+    mockFs.readdirSync.mockImplementation((dirPath: fs.PathLike) => {
+      const p = dirPath.toString();
+      if (p.endsWith('/projects')) {
+        return ['my-project'] as unknown as fs.Dirent[];
+      }
+      if (p.includes('my-project')) {
+        return ['abc-123.jsonl'] as unknown as fs.Dirent[];
+      }
+      if (p.endsWith('/sessions')) {
+        return [] as unknown as fs.Dirent[];
+      }
+      return [] as unknown as fs.Dirent[];
+    });
+    mockFs.readFileSync.mockImplementation((filePath: fs.PathOrFileDescriptor) => {
+      const p = filePath.toString();
+      if (p.endsWith('abc-123.jsonl')) {
+        return [
+          JSON.stringify({
+            type: 'assistant',
+            message: { role: 'assistant', model: '', usage: { input_tokens: 0, cache_read_input_tokens: 1000, cache_creation_input_tokens: 0, output_tokens: 1 } },
+            timestamp: new Date().toISOString(),
+          }),
+        ].join('\n');
+      }
+      return '';
+    });
+
+    const sessions = discoverSessions('claude-sonnet-4-6');
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].model).toBe('claude-sonnet-4-6');
+  });
+
+  it('skips non-json files in sessions dir', () => {
+    mockFs.existsSync.mockReturnValue(true);
+    mockFs.readdirSync.mockImplementation((dirPath: fs.PathLike) => {
+      const p = dirPath.toString();
+      if (p.endsWith('/projects')) {
+        return ['my-project'] as unknown as fs.Dirent[];
+      }
+      if (p.includes('my-project')) {
+        return ['abc-123.jsonl'] as unknown as fs.Dirent[];
+      }
+      if (p.endsWith('/sessions')) {
+        return ['readme.txt', '999.json'] as unknown as fs.Dirent[];
+      }
+      return [] as unknown as fs.Dirent[];
+    });
+    mockFs.readFileSync.mockImplementation((filePath: fs.PathOrFileDescriptor) => {
+      const p = filePath.toString();
+      if (p.endsWith('abc-123.jsonl')) {
+        return [
+          JSON.stringify({
+            type: 'assistant',
+            message: { role: 'assistant', model: 'claude-opus-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 1000, cache_creation_input_tokens: 0, output_tokens: 1 } },
+            timestamp: new Date().toISOString(),
+          }),
+        ].join('\n');
+      }
+      if (p.endsWith('999.json')) {
+        return JSON.stringify({ pid: 999, sessionId: 'abc-123', cwd: '/test', startedAt: Date.now(), kind: 'interactive' });
+      }
+      return '';
+    });
+    vi.spyOn(process, 'kill').mockImplementation(() => { throw new Error('ESRCH'); });
+
+    const sessions = discoverSessions('claude-sonnet-4-6');
+    expect(sessions).toHaveLength(1);
+  });
+
+  it('skips JSONL files that parse to null (no assistant messages)', () => {
+    mockFs.existsSync.mockReturnValue(true);
+    mockFs.readdirSync.mockImplementation((dirPath: fs.PathLike) => {
+      const p = dirPath.toString();
+      if (p.endsWith('/projects')) {
+        return ['my-project'] as unknown as fs.Dirent[];
+      }
+      if (p.includes('my-project')) {
+        return ['empty.jsonl', 'valid.jsonl'] as unknown as fs.Dirent[];
+      }
+      if (p.endsWith('/sessions')) {
+        return [] as unknown as fs.Dirent[];
+      }
+      return [] as unknown as fs.Dirent[];
+    });
+    mockFs.readFileSync.mockImplementation((filePath: fs.PathOrFileDescriptor) => {
+      const p = filePath.toString();
+      if (p.endsWith('empty.jsonl')) {
+        // No assistant messages, parseJsonlFile returns null
+        return JSON.stringify({ type: 'user', message: { role: 'user', content: 'hello' } });
+      }
+      if (p.endsWith('valid.jsonl')) {
+        return [
+          JSON.stringify({
+            type: 'assistant',
+            message: { role: 'assistant', model: 'claude-opus-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 1000, cache_creation_input_tokens: 0, output_tokens: 1 } },
+            timestamp: new Date().toISOString(),
+          }),
+        ].join('\n');
+      }
+      return '';
+    });
+
+    const sessions = discoverSessions('claude-sonnet-4-6');
+    // Only the valid session should be returned
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].sessionId).toBe('valid');
+  });
+
+  it('sorts sessions by total cached tokens descending', () => {
+    mockFs.existsSync.mockReturnValue(true);
+    mockFs.readdirSync.mockImplementation((dirPath: fs.PathLike) => {
+      const p = dirPath.toString();
+      if (p.endsWith('/projects')) {
+        return ['my-project'] as unknown as fs.Dirent[];
+      }
+      if (p.includes('my-project')) {
+        return ['small.jsonl', 'large.jsonl'] as unknown as fs.Dirent[];
+      }
+      if (p.endsWith('/sessions')) {
+        return [] as unknown as fs.Dirent[];
+      }
+      return [] as unknown as fs.Dirent[];
+    });
+    mockFs.readFileSync.mockImplementation((filePath: fs.PathOrFileDescriptor) => {
+      const p = filePath.toString();
+      if (p.endsWith('small.jsonl')) {
+        return [
+          JSON.stringify({
+            type: 'assistant',
+            message: { role: 'assistant', model: 'claude-sonnet-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 1000, cache_creation_input_tokens: 0, output_tokens: 1 } },
+            timestamp: new Date().toISOString(),
+          }),
+        ].join('\n');
+      }
+      if (p.endsWith('large.jsonl')) {
+        return [
+          JSON.stringify({
+            type: 'assistant',
+            message: { role: 'assistant', model: 'claude-sonnet-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 100000, cache_creation_input_tokens: 5000, output_tokens: 10 } },
+            timestamp: new Date().toISOString(),
+          }),
+        ].join('\n');
+      }
+      return '';
+    });
+
+    const sessions = discoverSessions('claude-sonnet-4-6');
+    expect(sessions).toHaveLength(2);
+    // Large session should come first
+    expect(sessions[0].sessionId).toBe('large');
+    expect(sessions[1].sessionId).toBe('small');
   });
 });

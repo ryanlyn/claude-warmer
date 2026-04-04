@@ -86,6 +86,13 @@ describe('SessionRow', () => {
     expect(lastFrame()!).toContain('error');
   });
 
+  it('shows success status in green', () => {
+    const { lastFrame } = render(
+      <SessionRow session={makeSession({ warmingStatus: 'success' })} highlighted={false} />,
+    );
+    expect(lastFrame()!).toContain('ok');
+  });
+
   it('shows dash for next warm when not scheduled', () => {
     const { lastFrame } = render(<SessionRow session={makeSession({ nextWarmAt: null })} highlighted={false} />);
     expect(lastFrame()!).toContain('-');
