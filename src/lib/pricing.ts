@@ -16,8 +16,8 @@ const PRICING: { pattern: RegExp; pricing: ModelPricing }[] = [
 
 const DEFAULT_PRICING: ModelPricing = { baseInputPerM: 3, outputPerM: 15 };
 
-const CACHE_WRITE_1H_MULTIPLIER = 2;
-const CACHE_READ_MULTIPLIER = 0.1;
+export const CACHE_WRITE_1H_MULTIPLIER = 2;
+export const CACHE_READ_MULTIPLIER = 0.1;
 
 export function getModelPricing(model: string): ModelPricing {
   for (const entry of PRICING) {
@@ -39,6 +39,14 @@ export function calcWarmCost(usage: SessionUsage, model: string): number {
   const writeCost = (usage.cacheCreationInputTokens * baseInputPerM * CACHE_WRITE_1H_MULTIPLIER) / 1_000_000;
   const outputCost = (usage.outputTokens * outputPerM) / 1_000_000;
   return readCost + writeCost + outputCost;
+}
+
+export function calcEstimatedWarmCost(cachedTokens: number, isWarm: boolean, model: string): number {
+  const { baseInputPerM } = getModelPricing(model);
+  if (isWarm) {
+    return (cachedTokens * baseInputPerM * CACHE_READ_MULTIPLIER) / 1_000_000;
+  }
+  return (cachedTokens * baseInputPerM * CACHE_WRITE_1H_MULTIPLIER) / 1_000_000;
 }
 
 export function formatUsd(amount: number): string {

@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import type { Session } from './types.js';
-import { calcExpiryCost } from './pricing.js';
+import { calcExpiryCost, calcEstimatedWarmCost } from './pricing.js';
 import { WARM_THRESHOLD_MS } from './types.js';
 
 interface ParsedSession {
@@ -137,6 +137,7 @@ export function discoverSessions(defaultModel: string): Session[] {
 
       const model = parsed.model || defaultModel;
       const cachedTokens = parsed.cacheReadTokens + parsed.cacheWriteTokens;
+      if (cachedTokens === 0) continue;
       const pidInfo = pidMap.get(sessionId);
       const isWarm = now - parsed.lastAssistantTimestamp < WARM_THRESHOLD_MS;
 
@@ -154,7 +155,7 @@ export function discoverSessions(defaultModel: string): Session[] {
         expiryCostUsd: calcExpiryCost(cachedTokens, model),
         selected: isWarm,
         warmingStatus: 'idle',
-        warmCostUsd: 0,
+        warmCostUsd: calcEstimatedWarmCost(cachedTokens, isWarm, model),
         warmCount: 0,
         nextWarmAt: null,
         lastWarmedAt: null,
@@ -164,6 +165,9 @@ export function discoverSessions(defaultModel: string): Session[] {
   }
 
   sessions.sort((a, b) => {
+    const aActive = a.isWarm || a.isLive ? 1 : 0;
+    const bActive = b.isWarm || b.isLive ? 1 : 0;
+    if (aActive !== bActive) return bActive - aActive;
     const aCached = a.cacheReadTokens + a.cacheWriteTokens;
     const bCached = b.cacheReadTokens + b.cacheWriteTokens;
     return bCached - aCached;

@@ -8,7 +8,7 @@ describe('Header', () => {
     const { lastFrame } = render(
       <Header warming={false} intervalMinutes={55} warmPrompt="Reply with only the word OK" />,
     );
-    expect(lastFrame()!).toContain('Cache Warmer');
+    expect(lastFrame()!).toContain('Claude Warmer');
   });
 
   it('shows paused state', () => {
