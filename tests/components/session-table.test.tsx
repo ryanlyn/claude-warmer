@@ -37,12 +37,12 @@ describe('SessionTable', () => {
     expect(frame).toContain('Session Name');
     expect(frame).toContain('Model');
     expect(frame).toContain('Cached');
-    expect(frame).toContain('Exp. Cost');
+    expect(frame).toContain('Expiry');
     expect(frame).toContain('Warm Cost');
     expect(frame).toContain('Warms');
     expect(frame).toContain('Next');
-    expect(frame).toContain('Status');
     expect(frame).toContain('ID');
+    expect(frame).toContain('Directory');
   });
 
   it('renders session rows', () => {

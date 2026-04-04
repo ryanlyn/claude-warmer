@@ -45,6 +45,7 @@ describe('Header', () => {
     );
     const frame = lastFrame()!;
     expect(frame).toContain('warming active');
+    expect(frame).toContain('live process');
     expect(frame).toContain('warm (idle)');
     expect(frame).toContain('cold (expired)');
   });

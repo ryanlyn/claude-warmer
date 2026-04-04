@@ -15,7 +15,7 @@ export function Footer() {
     <Box borderStyle="round" borderColor="gray" paddingX={1}>
       <KeyHint keyName="enter" label="warm all" />
       <KeyHint keyName="space" label="toggle" />
-      <KeyHint keyName="a" label="select warm" />
+      <KeyHint keyName="a" label="select live" />
       <KeyHint keyName="n" label="deselect all" />
       <KeyHint keyName="i" label="interval" />
       <KeyHint keyName="p" label="prompt" />

@@ -30,14 +30,14 @@ export function SessionTable({ sessions, highlightedIndex, scrollOffset, nameWid
         <Box width={2}><Text> </Text></Box>
         <Box width={9}><Text> </Text></Box>
         <ColumnHeader label="ID" width={10} />
+        <ColumnHeader label="Directory" width={14} />
         <ColumnHeader label="Session Name" width={nameWidth} />
         <ColumnHeader label="Model" width={10} />
         <ColumnHeader label="Cached" width={10} align="right" />
-        <ColumnHeader label="Exp. Cost" width={10} align="right" />
+        <ColumnHeader label="Expiry" width={10} align="right" />
         <ColumnHeader label="Warm Cost" width={10} align="right" />
         <ColumnHeader label="Warms" width={6} align="right" />
         <ColumnHeader label="Next" width={9} align="right" />
-        <ColumnHeader label="Status" width={10} align="right" />
       </Box>
       {sessions.length === 0 ? (
         <Box marginTop={1} justifyContent="center">
