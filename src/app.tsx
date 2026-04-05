@@ -6,6 +6,7 @@ import type { Session } from './lib/types.js';
 import { discoverSessions } from './lib/sessions.js';
 import { warmSession } from './lib/warmer.js';
 import { Scheduler } from './lib/scheduler.js';
+import { computeLayout } from './lib/layout.js';
 import { Header } from './components/header.js';
 import { SessionTable } from './components/session-table.js';
 import { Footer } from './components/footer.js';
@@ -18,6 +19,8 @@ interface AppProps {
 
 type EditingField = 'prompt' | 'interval' | null;
 
+const REFRESH_INTERVAL_SEC = 30;
+
 export function App({ intervalMinutes: initialInterval, warmPrompt: initialPrompt, defaultModel }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -28,13 +31,42 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
   const [warmPrompt, setWarmPrompt] = useState(initialPrompt);
   const [editingField, setEditingField] = useState<EditingField>(null);
   const [scrollOffset, setScrollOffset] = useState(0);
+  const [lastRefreshed, setLastRefreshed] = useState<number | null>(Date.now());
   const schedulerRef = useRef<Scheduler>(new Scheduler(warmSession, initialInterval));
   const tickingRef = useRef(false);
 
-  const fixedColumns = 90;
   /* v8 ignore next */
-  const nameWidth = Math.max(15, (stdout?.columns ?? 120) - fixedColumns);
+  const cols = stdout?.columns ?? 120;
+  const layout = computeLayout(cols);
   const visibleRows = Math.min((stdout?.rows ?? 24) - 6, 20);
+
+  // Periodic session refresh
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const fresh = discoverSessions(defaultModel);
+      setSessions((prev) => {
+        // Preserve warming state from current sessions
+        const stateMap = new Map(prev.map((s) => [s.sessionId, s]));
+        return fresh.map((s) => {
+          const existing = stateMap.get(s.sessionId);
+          if (!existing) return s;
+          return {
+            ...s,
+            selected: existing.selected,
+            warmingStatus: existing.warmingStatus,
+            warmCostUsd: existing.warmCostUsd,
+            warmCount: existing.warmCount,
+            nextWarmAt: existing.nextWarmAt,
+            lastWarmedAt: existing.lastWarmedAt,
+            lastWarmError: existing.lastWarmError,
+          };
+        });
+      });
+      setLastRefreshed(Date.now());
+    }, REFRESH_INTERVAL_SEC * 1000);
+
+    return () => clearInterval(interval);
+  }, [defaultModel]);
 
   const toggleSelection = useCallback((index: number) => {
     setSessions((prev) => {
@@ -221,8 +253,14 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
 
   return (
     <Box flexDirection="column">
-      <Header warming={warming} intervalMinutes={intervalMinutes} warmPrompt={warmPrompt} />
-      <SessionTable sessions={sessions} highlightedIndex={highlightedIndex} scrollOffset={scrollOffset} nameWidth={nameWidth} warmingActive={warming} />
+      <Header
+        warming={warming}
+        intervalMinutes={intervalMinutes}
+        warmPrompt={warmPrompt}
+        refreshIntervalSec={REFRESH_INTERVAL_SEC}
+        lastRefreshed={lastRefreshed}
+      />
+      <SessionTable sessions={sessions} highlightedIndex={highlightedIndex} scrollOffset={scrollOffset} layout={layout} warmingActive={warming} />
       {editingField === 'prompt' && (
         <Box>
           <Text bold color="cyan">Prompt: </Text>

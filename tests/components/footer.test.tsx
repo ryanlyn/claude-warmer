@@ -8,11 +8,11 @@ describe('Footer', () => {
     const { lastFrame } = render(<Footer />);
     const frame = lastFrame()!;
     expect(frame).toContain('toggle');
-    expect(frame).toContain('warm all');
-    expect(frame).toContain('select live');
-    expect(frame).toContain('deselect all');
+    expect(frame).toContain('warm');
+    expect(frame).toContain('live');
+    expect(frame).toContain('none');
     expect(frame).toContain('prompt');
-    expect(frame).toContain('copy id');
+    expect(frame).toContain('copy');
     expect(frame).toContain('quit');
   });
 });

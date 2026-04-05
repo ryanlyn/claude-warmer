@@ -3,24 +3,26 @@ import { Box, Text } from 'ink';
 
 function KeyHint({ keyName, label }: { keyName: string; label: string }) {
   return (
-    <Box marginRight={2}>
+    <Text>
       <Text bold color="cyan">{keyName}</Text>
-      <Text dimColor> {label}</Text>
-    </Box>
+      <Text dimColor> {label}  </Text>
+    </Text>
   );
 }
 
 export function Footer() {
   return (
-    <Box borderStyle="round" borderColor="gray" paddingX={1}>
-      <KeyHint keyName="enter" label="warm all" />
-      <KeyHint keyName="space" label="toggle" />
-      <KeyHint keyName="a" label="select live" />
-      <KeyHint keyName="n" label="deselect all" />
-      <KeyHint keyName="i" label="interval" />
-      <KeyHint keyName="p" label="prompt" />
-      <KeyHint keyName="c" label="copy id" />
-      <KeyHint keyName="q" label="quit" />
+    <Box>
+      <Text wrap="truncate-end">
+        <KeyHint keyName="ent" label="warm" />
+        <KeyHint keyName="spc" label="toggle" />
+        <KeyHint keyName="a" label="live" />
+        <KeyHint keyName="n" label="none" />
+        <KeyHint keyName="i" label="int" />
+        <KeyHint keyName="p" label="prompt" />
+        <KeyHint keyName="c" label="copy" />
+        <KeyHint keyName="q" label="quit" />
+      </Text>
     </Box>
   );
 }
