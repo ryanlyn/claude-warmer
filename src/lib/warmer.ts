@@ -46,12 +46,12 @@ export function parseWarmOutput(stdout: string): ParsedOutput {
   };
 }
 
-export function warmSession(sessionId: string, warmPrompt: string): Promise<WarmResult> {
+export function warmSession(sessionId: string, warmPrompt: string, cwd?: string): Promise<WarmResult> {
   return new Promise((resolve) => {
     execFile(
       'claude',
       ['-p', warmPrompt, '--resume', sessionId, '--output-format', 'json'],
-      { timeout: 60_000 },
+      { timeout: 60_000, cwd: cwd || undefined },
       (error, stdout, stderr) => {
         if (error) {
           resolve({
