@@ -34,19 +34,17 @@ async function main() {
   const allSessions = discoverSessions('claude-sonnet-4-6');
   log(`Found ${allSessions.length} sessions total`);
 
-  // Pick sessions for testing - prefer warm ones, include live ones
+  // Pick 2 live sessions for testing (they have valid session IDs)
   const liveSessions = allSessions.filter(s => s.isLive);
-  const warmNonLive = allSessions.filter(s => s.isWarm && !s.isLive);
-  log(`Found ${liveSessions.length} live sessions, ${warmNonLive.length} warm (non-live)`);
+  log(`Found ${liveSessions.length} live sessions`);
 
-  // Use live sessions first (they're the most interesting to test), then warm
-  const candidates = [...liveSessions, ...warmNonLive];
-  if (candidates.length === 0) {
-    log('ERROR: No warm or live sessions found. Cannot test.');
+  if (liveSessions.length < 2) {
+    log(`ERROR: Need at least 2 live sessions for multi-session test. Found ${liveSessions.length}.`);
+    log('Start more Claude Code sessions and retry.');
     process.exit(1);
   }
 
-  const testSessions = candidates.slice(0, 2).map(s => ({ ...s, selected: true }));
+  const testSessions = liveSessions.slice(0, 2).map(s => ({ ...s, selected: true }));
   log(`Testing with ${testSessions.length} sessions:`);
   testSessions.forEach(printSession);
 
