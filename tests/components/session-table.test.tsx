@@ -5,7 +5,7 @@ import { SessionTable } from '../../src/components/session-table.js';
 import type { Session } from '../../src/lib/types.js';
 import { computeLayout } from '../../src/lib/layout.js';
 
-const layout = computeLayout(60);
+const layout = computeLayout(65);
 
 function makeSession(overrides: Partial<Session> = {}): Session {
   return {
@@ -38,7 +38,7 @@ describe('SessionTable', () => {
     );
     const frame = lastFrame()!;
     expect(frame).toContain('Name');
-    expect(frame).toContain('Cached');
+    expect(frame).toContain('R+W');
     expect(frame).toContain('Cost');
     expect(frame).toContain('Warms');
     expect(frame).toContain('Next');

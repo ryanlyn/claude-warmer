@@ -34,7 +34,7 @@ export function SessionTable({ sessions, highlightedIndex, scrollOffset, layout,
         {layout.showDir && <ColumnHeader label="Dir" width={layout.dirW} />}
         <ColumnHeader label="Name" width={layout.nameW} />
         {layout.showModel && <ColumnHeader label="Model" width={layout.modelW} />}
-        <ColumnHeader label="Cached" width={layout.numW} align="right" />
+        <ColumnHeader label="R+W" width={layout.cachedW} align="right" />
         {layout.showExpiry && <ColumnHeader label="Expiry" width={layout.numW} align="right" />}
         <ColumnHeader label="Cost" width={layout.numW} align="right" />
         <ColumnHeader label="Warms" width={layout.warmsW} align="right" />

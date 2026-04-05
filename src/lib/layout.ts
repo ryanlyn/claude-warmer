@@ -6,6 +6,7 @@ export interface ColumnLayout {
   nameW: number;
   showModel: boolean;
   modelW: number;
+  cachedW: number;
   numW: number;
   showExpiry: boolean;
   warmsW: number;
@@ -26,6 +27,7 @@ export function computeLayout(cols: number): ColumnLayout {
   const idW = 9;
   const dirW = 12;
   const modelW = 10;
+  const cachedW = 13;
   const numW = 8;
   const warmsW = 6;
   const nextW = 6;
@@ -37,12 +39,12 @@ export function computeLayout(cols: number): ColumnLayout {
   const fixed = selectW + statusW + idW
     + (showDir ? dirW : 0)
     + (showModel ? modelW : 0)
-    + numW  // cached
+    + cachedW
     + (showExpiry ? numW : 0)
     + numW  // warm cost
     + warmsW + nextW;
 
   const nameW = Math.max(10, cols - fixed);
 
-  return { statusW, idW, showDir, dirW, nameW, showModel, modelW, numW, showExpiry, warmsW, nextW };
+  return { statusW, idW, showDir, dirW, nameW, showModel, modelW, cachedW, numW, showExpiry, warmsW, nextW };
 }
