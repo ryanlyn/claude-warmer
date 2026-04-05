@@ -2,7 +2,7 @@ import type { Session, WarmResult } from './types.js';
 import { WARM_THRESHOLD_MS } from './types.js';
 import { calcExpiryCost } from './pricing.js';
 
-type WarmFn = (sessionId: string, prompt: string, cwd?: string) => Promise<WarmResult>;
+type WarmFn = (sessionId: string, prompt: string, cwd?: string, projectDir?: string) => Promise<WarmResult>;
 
 export class Scheduler {
   private warmFn: WarmFn;
@@ -50,7 +50,7 @@ export class Scheduler {
 
       updated[i] = { ...s, warmingStatus: 'warming' };
 
-      const result = await this.warmFn(s.sessionId, warmPrompt, s.cwd);
+      const result = await this.warmFn(s.sessionId, warmPrompt, s.cwd, s.projectDir);
       const warmTime = Date.now();
 
       if (result.error) {

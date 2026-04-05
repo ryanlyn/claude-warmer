@@ -363,10 +363,10 @@ describe('App', () => {
     await tick();
     stdin.write('\r');
     await tick();
-    expect(lastFrame()!).toContain('idle');
+    expect(lastFrame()!).toContain('paused');
   });
 
-  it('warming toggle off resets sessions with warmingStatus warming to idle', async () => {
+  it('warming toggle off resets sessions with warmingStatus warming to paused', async () => {
     mockSessions.discoverSessions.mockReturnValue([{
       ...defaultSession(),
       warmingStatus: 'warming',
@@ -380,10 +380,10 @@ describe('App', () => {
     // Start warming
     stdin.write('\r');
     await tick();
-    // Stop warming - should reset 'warming' status to 'idle'
+    // Stop warming
     stdin.write('\r');
     await tick();
-    expect(lastFrame()!).toContain('idle');
+    expect(lastFrame()!).toContain('paused');
   });
 
   it('handles unrecognized key input gracefully', async () => {

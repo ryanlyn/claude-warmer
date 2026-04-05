@@ -91,7 +91,7 @@ describe('Scheduler', () => {
       const session = makeSession({ nextWarmAt: Date.now() - 1000 });
       const updated = await scheduler.tick([session], 'Reply with only the word OK');
 
-      expect(mockWarmFn).toHaveBeenCalledWith('test-id', 'Reply with only the word OK', '/test');
+      expect(mockWarmFn).toHaveBeenCalledWith('test-id', 'Reply with only the word OK', '/test', 'test-project');
       expect(updated[0].warmCount).toBe(1);
       expect(updated[0].warmingStatus).toBe('success');
       expect(updated[0].lastWarmedAt).toBeGreaterThan(0);

@@ -1,0 +1,45 @@
+# CLAUDE.md
+
+## Project
+
+TUI tool that keeps Claude Code session caches warm by periodically resuming sessions via `claude --resume` in a PTY. Built with React/Ink.
+
+## Architecture
+
+- `src/index.tsx` - CLI entry, parses args, renders `<App>`
+- `src/app.tsx` - Main component. Manages session state, warming toggle, periodic refresh (30s), tick loop (30s)
+- `src/lib/warmer.ts` - Spawns `claude --resume <id>` via node-pty, sends prompt after output settles, sends `/exit`, reads usage from JSONL
+- `src/lib/scheduler.ts` - Schedules warm times. Cold sessions warm immediately, warm sessions at random point before expiry
+- `src/lib/sessions.ts` - Discovers sessions from `~/.claude/projects/` JSONL files, cross-references `~/.claude/sessions/` PID files for liveness
+- `src/lib/pricing.ts` - Token cost calculation with cache read (0.1x) and write (2x) multipliers
+- `src/lib/layout.ts` - Responsive column widths, hides columns progressively at narrow terminals
+- `src/lib/types.ts` - Shared types, `WARM_THRESHOLD_MS` (55 min)
+
+## Commands
+
+- `npm run dev` - Run via tsx
+- `npm test` - Unit tests (vitest, 100% coverage required)
+- `npm run test:e2e` - E2E cache hit test (slow, hits real API, currently expected to fail)
+- `npm run build` - Bundle with tsup
+
+## Key design decisions
+
+- **node-pty for resumption**: `claude --resume` must run in a real PTY to go through the interactive REPL codepath (`cc_entrypoint=cli`). Using `execFile` with `-p` flag goes through the SDK codepath (`cc_entrypoint=sdk-cli`) which has a different system prompt identity.
+- **JSONL for metrics**: After a warm completes, usage (cache reads/writes) is read from the session's JSONL file rather than parsing CLI output, since the interactive REPL doesn't emit structured JSON.
+- **Settle-based readiness detection**: The warmer waits for PTY output to stop flowing for 3s before sending the prompt, and again before sending `/exit`. This handles variable REPL startup times.
+- **Session refresh preserves warmer state**: The 30s refresh re-reads JSONL files for fresh data (tokens, warm/cold, name) but preserves warmer-owned state (selected, warmCount, nextWarmAt, etc.).
+
+## Known limitation: cross-process cache invalidation
+
+Consecutive `claude --resume` calls from different processes get ~53% cache hit rate instead of >90%. Root cause: the Agent tool description in the API request lists plugin-provided agent types in non-deterministic order (depends on async plugin loading). This breaks prefix cache for all conversation messages downstream.
+
+- Claude Code's attachment path (`src/utils/attachments.ts:1541`) already sorts agent types, but it's behind the `tengu_agent_list_attach` feature flag which is currently off.
+- The inline path (`src/tools/AgentTool/prompt.ts:199`) does not sort.
+- The E2E test (`tests/e2e/warm-cache-hits.test.ts`) asserts >90% hit rate and is expected to fail until this is fixed in Claude Code.
+
+## Testing
+
+- Unit tests mock node-pty, node:fs, and node:child_process
+- E2E test is excluded from unit test runs (separate vitest config)
+- 100% coverage thresholds on unit tests
+- `chmod +x node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper` may be needed after `npm install` if node-pty spawn fails with `posix_spawnp`
