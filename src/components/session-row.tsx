@@ -13,8 +13,8 @@ interface SessionRowProps {
 
 function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 10_000) return `${Math.round(n / 1000)}k`;
-  return n.toLocaleString('en-US');
+  if (n >= 1_000) return `${Math.round(n / 1000)}k`;
+  return String(n);
 }
 
 function formatCountdown(nextWarmAt: number | null): string {
@@ -85,8 +85,8 @@ export function SessionRow({ session, highlighted, layout, warmingActive }: Sess
           <Text color={rowColor} dimColor={isDim}>{shortenModelName(session.model)}</Text>
         </Box>
       )}
-      <Box width={layout.numW} justifyContent="flex-end">
-        <Text color={rowColor} dimColor={isDim}>{formatTokens(cachedTotal)}</Text>
+      <Box width={layout.cachedW} justifyContent="flex-end">
+        <Text color={rowColor} dimColor={isDim}>{formatTokens(session.cacheReadTokens)} + {formatTokens(session.cacheWriteTokens)}</Text>
       </Box>
       {layout.showExpiry && (
         <Box width={layout.numW} justifyContent="flex-end">

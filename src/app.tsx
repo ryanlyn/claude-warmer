@@ -49,7 +49,7 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
         const stateMap = new Map(prev.map((s) => [s.sessionId, s]));
         return fresh.map((s) => {
           const existing = stateMap.get(s.sessionId);
-          if (!existing) return s;
+          if (!existing) return { ...s, selected: false };
           return {
             ...s,
             selected: existing.selected,

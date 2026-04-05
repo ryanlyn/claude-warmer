@@ -7,7 +7,7 @@ import { computeLayout } from '../../src/lib/layout.js';
 
 // ink-testing-library renders without a TTY, so content may wrap at narrow widths.
 // Use a narrow layout to minimize total row width and avoid wrapping artifacts.
-const layout = computeLayout(60);
+const layout = computeLayout(65);
 
 function makeSession(overrides: Partial<Session> = {}): Session {
   return {
@@ -71,7 +71,7 @@ describe('SessionRow', () => {
 
   it('shows formatted cached tokens', () => {
     const { lastFrame } = render(<SessionRow session={makeSession()} highlighted={false} layout={layout} warmingActive={false} />);
-    expect(lastFrame()!).toContain('105k');
+    expect(lastFrame()!).toContain('100k + 5k');
   });
 
   it('shows expiry cost for warm sessions at wide widths', () => {
