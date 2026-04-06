@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "bin": {
-    "claude-warmer": "./dist/index.js"
+    "claude-warmer": "dist/index.js"
   },
   "files": [
     "dist"
@@ -37,7 +37,7 @@
   "license": "ISC",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ryanlyn/claude-warmer.git"
+    "url": "git+https://github.com/ryanlyn/claude-warmer.git"
   },
   "homepage": "https://github.com/ryanlyn/claude-warmer",
   "bugs": {
