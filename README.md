@@ -1,10 +1,12 @@
 # claude warmer
 
-Keep your Claude Code session caches alive. This tool periodically sends lightweight prompts to your sessions via `claude --resume` so the API prompt cache doesn't expire (1h TTL).
+Keep your Claude Code caches alive while you sleep, go for lunch, or touch grass. Periodically sends lightweight prompts to your sessions via `claude --resume` so that 1h TTL cache writes are refreshed.
 
-Without warming, resuming a session after the cache expires means a full cache write - potentially several dollars on a large Opus session. With warming, you pay ~$0.04 per keep-alive instead. Cache reads are [20x cheaper than cache writes](https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching#pricing).
+Without warming, resuming a session older than 1 hour means a full cache write - $10 per M tokens for Opus 4.6. With warming, you pay $0.5 per M tokens for keep-alive instead. Cache reads and refreshes are [20x cheaper than 1h cache writes](https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching#pricing).
 
-> **Note:** Cross-process `claude --resume` currently gets ~53% cache hit rate due to non-deterministic agent type ordering in Claude Code's tool definitions. The fix (sorting agent types) exists behind a feature flag in CC. Once enabled, cross-process cache hits should reach >90%.
+> **Usage is not recommended yet:** As of Claude Code version `2.1.92`, there is a bug where cross-process `claude --resume` result in non-deterministic plugin skill and tool definitions, which invalidates most of the cached prefix. The fix (an upcoming attachment system) exists behind a feature flag in Claude Code. Once enabled, cross-process cache hits should reach >90%.
+
+<img width="1073" height="652" alt="image" src="https://github.com/user-attachments/assets/92e7a474-3f60-47e2-9f7c-4df41be715d2" />
 
 ## Install
 
