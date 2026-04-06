@@ -5,9 +5,8 @@
  * subsequent resumes from separate processes should read from cache for the full
  * conversation prefix (system blocks + tools + messages).
  *
- * Currently FAILS (~53% hits) due to non-deterministic Agent tool ordering in
- * Claude Code (agent types listed in plugin-load order, not sorted).
- * See: claude-code src/tools/AgentTool/prompt.ts - inline path doesn't sort.
+ * Currently FAILS (~53% hits) due to non-deterministic agent type ordering in
+ * Claude Code's tool definitions (agent types listed in plugin-load order, not sorted).
  * Expected to PASS once Claude Code sorts agent types deterministically.
  */
 

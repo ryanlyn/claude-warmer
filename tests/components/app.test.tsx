@@ -487,7 +487,7 @@ describe('App', () => {
 
     stdin.write('c');
     await tick();
-    expect(mockExecSync).toHaveBeenCalledWith(expect.stringContaining('pbcopy'));
+    expect(mockExecSync).toHaveBeenCalledWith('pbcopy', expect.objectContaining({ input: 'abc-123' }));
     expect(lastFrame()!).toBeDefined();
   });
 
