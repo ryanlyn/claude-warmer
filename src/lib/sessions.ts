@@ -106,7 +106,7 @@ function loadPidFiles(): Map<string, { cwd: string; pid: number; isLive: boolean
   return map;
 }
 
-export function discoverSessions(defaultModel: string): Session[] {
+export function discoverSessions(): Session[] {
   const projectsDir = path.join(os.homedir(), '.claude', 'projects');
   if (!fs.existsSync(projectsDir)) return [];
 
@@ -135,7 +135,7 @@ export function discoverSessions(defaultModel: string): Session[] {
       const parsed = parseJsonlFile(content, sessionId);
       if (!parsed) continue;
 
-      const model = parsed.model || defaultModel;
+      const model = parsed.model;
       const cachedTokens = parsed.cacheReadTokens + parsed.cacheWriteTokens;
       if (cachedTokens === 0) continue;
       const pidInfo = pidMap.get(sessionId);

@@ -25,7 +25,6 @@ claude-warmer
 Options:
 - `-i, --interval <minutes>` - Warming interval (default: 55, just under the 1h cache TTL)
 - `--prompt <string>` - Prompt to send (default: "Reply 'ok'")
-- `--model <model>` - Default model for cost estimates (default: claude-sonnet-4-6)
 
 ## How it works
 

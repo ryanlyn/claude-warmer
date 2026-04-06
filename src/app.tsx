@@ -14,17 +14,16 @@ import { Footer } from './components/footer.js';
 interface AppProps {
   intervalMinutes: number;
   warmPrompt: string;
-  defaultModel: string;
 }
 
 type EditingField = 'prompt' | 'interval' | null;
 
 const REFRESH_INTERVAL_SEC = 30;
 
-export function App({ intervalMinutes: initialInterval, warmPrompt: initialPrompt, defaultModel }: AppProps) {
+export function App({ intervalMinutes: initialInterval, warmPrompt: initialPrompt }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
-  const [sessions, setSessions] = useState<Session[]>(() => discoverSessions(defaultModel));
+  const [sessions, setSessions] = useState<Session[]>(() => discoverSessions());
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [warming, setWarming] = useState(false);
   const [intervalMinutes, setIntervalMinutes] = useState(initialInterval);
@@ -43,7 +42,7 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
   // Periodic session refresh
   useEffect(() => {
     const interval = setInterval(() => {
-      const fresh = discoverSessions(defaultModel);
+      const fresh = discoverSessions();
       setSessions((prev) => {
         // Preserve warming state from current sessions
         const stateMap = new Map(prev.map((s) => [s.sessionId, s]));
@@ -66,7 +65,7 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
     }, REFRESH_INTERVAL_SEC * 1000);
 
     return () => clearInterval(interval);
-  }, [defaultModel]);
+  }, []);
 
   const toggleSelection = useCallback(
     (index: number) => {
