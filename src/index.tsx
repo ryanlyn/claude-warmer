@@ -8,7 +8,6 @@ const { values } = parseArgs({
   options: {
     interval: { type: 'string', short: 'i', default: '55' },
     prompt: { type: 'string', default: "Reply 'ok'" },
-    model: { type: 'string', default: 'claude-sonnet-4-6' },
     help: { type: 'boolean', short: 'h', default: false },
   },
   strict: true,
@@ -22,8 +21,7 @@ Usage: claude-cache-warmer [options]
 
 Options:
   -i, --interval <minutes>  Warming interval in minutes (default: 55)
-  --prompt <string>         Custom warm prompt (default: "Reply with only the word OK")
-  --model <model>           Default model for pricing (default: "claude-sonnet-4-6")
+  --prompt <string>         Custom warm prompt (default: "Reply 'ok'")
   -h, --help                Show this help message
 `);
   process.exit(0);
@@ -37,4 +35,4 @@ if (isNaN(intervalMinutes) || intervalMinutes < 1 || intervalMinutes > 59) {
 
 process.stdout.write('\x1B[2J\x1B[H');
 
-render(<App intervalMinutes={intervalMinutes} warmPrompt={values.prompt!} defaultModel={values.model!} />);
+render(<App intervalMinutes={intervalMinutes} warmPrompt={values.prompt!} />);

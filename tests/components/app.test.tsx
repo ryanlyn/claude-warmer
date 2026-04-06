@@ -115,24 +115,22 @@ beforeEach(() => {
 
 describe('App', () => {
   it('renders header with app name', () => {
-    const { lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />);
+    const { lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     expect(lastFrame()!).toContain('Claude Warmer');
   });
 
   it('renders discovered sessions', () => {
-    const { lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />);
+    const { lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     expect(lastFrame()!).toContain('Test Session');
   });
 
   it('renders footer with keybindings', () => {
-    const { lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />);
+    const { lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     expect(lastFrame()!).toContain('quit');
   });
 
   it('toggles selection on space key', async () => {
-    const { lastFrame, stdin } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { lastFrame, stdin } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
     expect(lastFrame()!).toContain('$0.05');
 
@@ -144,9 +142,7 @@ describe('App', () => {
   });
 
   it('toggles warming on enter key', async () => {
-    const { lastFrame, stdin } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { lastFrame, stdin } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     stdin.write('\r');
@@ -157,9 +153,7 @@ describe('App', () => {
   it('selects active sessions on a key', async () => {
     mockSessions.discoverSessions.mockReturnValue(makeTwoSessions());
 
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     // First deselect all
@@ -175,9 +169,7 @@ describe('App', () => {
   });
 
   it('deselects all on n key', async () => {
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     stdin.write('n');
@@ -189,9 +181,7 @@ describe('App', () => {
   it('navigates down with arrow key', async () => {
     mockSessions.discoverSessions.mockReturnValue(makeTwoSessions());
 
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     stdin.write('\x1B[B');
@@ -204,9 +194,7 @@ describe('App', () => {
   it('navigates up with arrow key', async () => {
     mockSessions.discoverSessions.mockReturnValue(makeTwoSessions());
 
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     stdin.write('\x1B[B');
@@ -218,9 +206,7 @@ describe('App', () => {
   });
 
   it('does not navigate below last session', async () => {
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     stdin.write('\x1B[B');
@@ -231,9 +217,7 @@ describe('App', () => {
   });
 
   it('does not navigate above first session', async () => {
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     stdin.write('\x1B[A');
@@ -242,7 +226,7 @@ describe('App', () => {
   });
 
   it('quits on q key', async () => {
-    const { stdin } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />);
+    const { stdin } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     stdin.write('q');
@@ -250,9 +234,7 @@ describe('App', () => {
   });
 
   it('toggles warming on with enter key', async () => {
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     stdin.write('\r');
@@ -261,9 +243,7 @@ describe('App', () => {
   });
 
   it('toggles warming off with enter key pressed twice', async () => {
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     stdin.write('\r');
@@ -277,9 +257,7 @@ describe('App', () => {
 
   it('warming timer effect fires and calls tick', async () => {
     vi.useFakeTimers();
-    const { stdin, unmount } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, unmount } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
 
     stdin.write('\r');
     await vi.advanceTimersByTimeAsync(30_000);
@@ -290,9 +268,7 @@ describe('App', () => {
 
   it('warming timer effect cleans up on warming toggle off', async () => {
     vi.useFakeTimers();
-    const { stdin, unmount } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, unmount } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
 
     stdin.write('\r');
     await vi.advanceTimersByTimeAsync(10_000);
@@ -304,9 +280,7 @@ describe('App', () => {
   });
 
   it('selectNone while warming calls removeSession', async () => {
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     stdin.write('\r');
@@ -319,9 +293,7 @@ describe('App', () => {
   it('selectActive while warming calls addSession for active sessions', async () => {
     mockSessions.discoverSessions.mockReturnValue(makeTwoSessions());
 
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     stdin.write('\r');
@@ -332,9 +304,7 @@ describe('App', () => {
   });
 
   it('toggleSelection while warming adds session when selecting', async () => {
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     stdin.write('\r');
@@ -347,9 +317,7 @@ describe('App', () => {
   });
 
   it('toggleSelection while warming removes session when deselecting', async () => {
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     stdin.write('\r');
@@ -360,9 +328,7 @@ describe('App', () => {
   });
 
   it('warming toggle off resets warming status', async () => {
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     stdin.write('\r');
@@ -380,9 +346,7 @@ describe('App', () => {
       },
     ]);
 
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     // Start warming
@@ -395,9 +359,7 @@ describe('App', () => {
   });
 
   it('handles unrecognized key input gracefully', async () => {
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     stdin.write('x');
@@ -408,9 +370,7 @@ describe('App', () => {
   it('does not toggle selection when sessions list is empty', async () => {
     mockSessions.discoverSessions.mockReturnValue([]);
 
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     stdin.write(' ');
@@ -420,9 +380,7 @@ describe('App', () => {
 
   it('tick guard prevents concurrent tick execution', async () => {
     vi.useFakeTimers();
-    const { stdin, unmount } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, unmount } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
 
     stdin.write('\r');
     await vi.advanceTimersByTimeAsync(30_000);
@@ -434,9 +392,7 @@ describe('App', () => {
 
   it('tick guard early return when tickingRef is true', async () => {
     vi.useFakeTimers();
-    const { stdin, unmount } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, unmount } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
 
     stdin.write('\r');
 
@@ -451,9 +407,7 @@ describe('App', () => {
 
   it('new sessions from refresh start unselected', async () => {
     vi.useFakeTimers();
-    const { lastFrame, unmount } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { lastFrame, unmount } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
 
     // After initial render, mock a new session appearing on next refresh
     const newSession = {
@@ -480,9 +434,7 @@ describe('App', () => {
     const mockExecSync = vi.mocked(childProcess.execSync);
     mockExecSync.mockReturnValue(Buffer.from(''));
 
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     stdin.write('c');
@@ -497,9 +449,7 @@ describe('App', () => {
       throw new Error('pbcopy not found');
     });
 
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     stdin.write('c');
@@ -511,9 +461,7 @@ describe('App', () => {
   it('c key is no-op when sessions list is empty', async () => {
     mockSessions.discoverSessions.mockReturnValue([]);
 
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     stdin.write('c');
@@ -523,9 +471,7 @@ describe('App', () => {
 
   it('opens prompt editing on p key and submits with value', async () => {
     capturedOnSubmit = null;
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     stdin.write('p');
@@ -542,9 +488,7 @@ describe('App', () => {
 
   it('opens interval editing on i key and submits with valid value', async () => {
     capturedOnSubmit = null;
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     stdin.write('i');
@@ -561,9 +505,7 @@ describe('App', () => {
 
   it('interval edit with invalid value keeps original', async () => {
     capturedOnSubmit = null;
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     stdin.write('i');
@@ -578,9 +520,7 @@ describe('App', () => {
 
   it('interval edit with out-of-range value keeps original', async () => {
     capturedOnSubmit = null;
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     stdin.write('i');
@@ -595,9 +535,7 @@ describe('App', () => {
 
   it('interval edit with value above 59 keeps original', async () => {
     capturedOnSubmit = null;
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     stdin.write('i');
@@ -611,9 +549,7 @@ describe('App', () => {
 
   it('prompt edit with empty value keeps original', async () => {
     capturedOnSubmit = null;
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     stdin.write('p');
@@ -628,9 +564,7 @@ describe('App', () => {
 
   it('disables keybindings while editing prompt', async () => {
     capturedOnSubmit = null;
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     stdin.write('p');
@@ -649,9 +583,7 @@ describe('App', () => {
   it('selectActive while warming removes non-active sessions', async () => {
     mockSessions.discoverSessions.mockReturnValue(makeTwoSessions());
 
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     // Start warming
@@ -673,9 +605,7 @@ describe('App', () => {
     }));
     mockSessions.discoverSessions.mockReturnValue(manySessions);
 
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     // Navigate down many times
@@ -688,9 +618,7 @@ describe('App', () => {
 
   it('interval change while warming reschedules sessions', async () => {
     capturedOnSubmit = null;
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     // Start warming
@@ -731,9 +659,7 @@ describe('App', () => {
     });
 
     vi.useFakeTimers();
-    const { stdin, unmount } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, unmount } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
 
     // Start warming - cold session gets nextWarmAt = now
     stdin.write('\r');
@@ -756,9 +682,7 @@ describe('App', () => {
     }));
     mockSessions.discoverSessions.mockReturnValue(manySessions);
 
-    const { stdin, lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     // Navigate down then back up

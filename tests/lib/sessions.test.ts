@@ -208,7 +208,7 @@ describe('checkPidAlive', () => {
 describe('discoverSessions', () => {
   it('returns empty array when no project dirs exist', () => {
     mockFs.existsSync.mockReturnValue(false);
-    const sessions = discoverSessions('claude-sonnet-4-6');
+    const sessions = discoverSessions();
     expect(sessions).toEqual([]);
   });
 
@@ -263,7 +263,7 @@ describe('discoverSessions', () => {
       throw new Error('ESRCH');
     });
 
-    const sessions = discoverSessions('claude-sonnet-4-6');
+    const sessions = discoverSessions();
     expect(sessions).toHaveLength(1);
     expect(sessions[0].sessionId).toBe('abc-123');
     expect(sessions[0].name).toBe('Test Session');
@@ -312,7 +312,7 @@ describe('discoverSessions', () => {
       return '';
     });
 
-    const sessions = discoverSessions('claude-sonnet-4-6');
+    const sessions = discoverSessions();
     expect(sessions).toHaveLength(1);
     // No PID info, so cwd should be empty and isLive false
     expect(sessions[0].cwd).toBe('');
@@ -360,7 +360,7 @@ describe('discoverSessions', () => {
       return '';
     });
 
-    const sessions = discoverSessions('claude-sonnet-4-6');
+    const sessions = discoverSessions();
     // Should still discover the session, just without PID info
     expect(sessions).toHaveLength(1);
     expect(sessions[0].cwd).toBe('');
@@ -385,7 +385,7 @@ describe('discoverSessions', () => {
       throw new Error('EACCES');
     });
 
-    const sessions = discoverSessions('claude-sonnet-4-6');
+    const sessions = discoverSessions();
     // Should skip the unreadable file
     expect(sessions).toHaveLength(0);
   });
@@ -404,12 +404,12 @@ describe('discoverSessions', () => {
       throw new Error('EACCES');
     });
 
-    const sessions = discoverSessions('claude-sonnet-4-6');
+    const sessions = discoverSessions();
     // Should skip the unreadable project dir
     expect(sessions).toHaveLength(0);
   });
 
-  it('uses defaultModel when session model is empty', () => {
+  it('uses empty model when session model is not set', () => {
     mockFs.existsSync.mockReturnValue(true);
     mockFs.readdirSync.mockImplementation((dirPath: fs.PathLike) => {
       const p = dirPath.toString();
@@ -447,9 +447,9 @@ describe('discoverSessions', () => {
       return '';
     });
 
-    const sessions = discoverSessions('claude-sonnet-4-6');
+    const sessions = discoverSessions();
     expect(sessions).toHaveLength(1);
-    expect(sessions[0].model).toBe('claude-sonnet-4-6');
+    expect(sessions[0].model).toBe('');
   });
 
   it('skips non-json files in sessions dir', () => {
@@ -502,7 +502,7 @@ describe('discoverSessions', () => {
       throw new Error('ESRCH');
     });
 
-    const sessions = discoverSessions('claude-sonnet-4-6');
+    const sessions = discoverSessions();
     expect(sessions).toHaveLength(1);
   });
 
@@ -548,7 +548,7 @@ describe('discoverSessions', () => {
       return '';
     });
 
-    const sessions = discoverSessions('claude-sonnet-4-6');
+    const sessions = discoverSessions();
     // Only the valid session should be returned
     expect(sessions).toHaveLength(1);
     expect(sessions[0].sessionId).toBe('valid');
@@ -628,7 +628,7 @@ describe('discoverSessions', () => {
       return '';
     });
 
-    const sessions = discoverSessions('claude-sonnet-4-6');
+    const sessions = discoverSessions();
     expect(sessions).toHaveLength(3);
     // Active (warm) sessions first sorted by cached tokens, then cold
     expect(sessions[0].sessionId).toBe('large');
@@ -705,7 +705,7 @@ describe('discoverSessions', () => {
     });
     vi.spyOn(process, 'kill').mockImplementation(() => true);
 
-    const sessions = discoverSessions('claude-sonnet-4-6');
+    const sessions = discoverSessions();
     expect(sessions).toHaveLength(2);
     // Live session should be first (active) even though it has fewer tokens and is cold by timestamp
     expect(sessions[0].sessionId).toBe('live-session');
@@ -824,7 +824,7 @@ describe('discoverSessions', () => {
     });
     vi.spyOn(process, 'kill').mockImplementation(() => true);
 
-    const sessions = discoverSessions('claude-sonnet-4-6');
+    const sessions = discoverSessions();
     expect(sessions).toHaveLength(4);
     // Two live sessions sorted by cached tokens desc
     expect(sessions[0].sessionId).toBe('live-b');
@@ -891,7 +891,7 @@ describe('discoverSessions', () => {
       return '';
     });
 
-    const sessions = discoverSessions('claude-sonnet-4-6');
+    const sessions = discoverSessions();
     expect(sessions).toHaveLength(1);
     expect(sessions[0].sessionId).toBe('has-cache');
   });
@@ -934,7 +934,7 @@ describe('discoverSessions', () => {
       return '';
     });
 
-    const sessions = discoverSessions('claude-sonnet-4-6');
+    const sessions = discoverSessions();
     expect(sessions).toHaveLength(1);
     // warmCostUsd is now always initialized to 0 (static display computed in session-row)
     expect(sessions[0].warmCostUsd).toBe(0);
