@@ -30,9 +30,19 @@ function StatusBadge({ session, warmingActive }: { session: Session; warmingActi
   const liveColor = isActivelyWarming ? 'green' : 'yellow';
   const liveIndicator = session.isLive ? <Text color={liveColor}>●</Text> : <Text> </Text>;
   if (session.isWarm) {
-    return <>{liveIndicator}<Text color={isActivelyWarming ? 'green' : 'yellow'}>[w]</Text></>;
+    return (
+      <>
+        {liveIndicator}
+        <Text color={isActivelyWarming ? 'green' : 'yellow'}>[w]</Text>
+      </>
+    );
   }
-  return <>{liveIndicator}<Text dimColor>[c]</Text></>;
+  return (
+    <>
+      {liveIndicator}
+      <Text dimColor>[c]</Text>
+    </>
+  );
 }
 
 function formatCwd(cwd: string, width: number): string {
@@ -50,7 +60,7 @@ export function SessionRow({ session, highlighted, layout, warmingActive }: Sess
   const isCold = !session.isWarm && !session.isLive;
   const isActivelyWarming = warmingActive && session.selected && session.isWarm;
   const rowColor = isActivelyWarming ? 'green' : undefined;
-  const isDim = isActivelyWarming ? false : (isCold || !session.selected);
+  const isDim = isActivelyWarming ? false : isCold || !session.selected;
 
   const expiryCost = isCold ? '-' : formatUsd(session.expiryCostUsd);
   const warmingCost = isCold
@@ -68,11 +78,15 @@ export function SessionRow({ session, highlighted, layout, warmingActive }: Sess
         <StatusBadge session={session} warmingActive={warmingActive} />
       </Box>
       <Box width={layout.idW}>
-        <Text color={rowColor} dimColor={isDim}>{session.sessionId.slice(0, 8)}</Text>
+        <Text color={rowColor} dimColor={isDim}>
+          {session.sessionId.slice(0, 8)}
+        </Text>
       </Box>
       {layout.showDir && (
         <Box width={layout.dirW}>
-          <Text color={rowColor} dimColor={isDim}>{formatCwd(session.cwd, layout.dirW)}</Text>
+          <Text color={rowColor} dimColor={isDim}>
+            {formatCwd(session.cwd, layout.dirW)}
+          </Text>
         </Box>
       )}
       <Box width={layout.nameW}>
@@ -82,25 +96,37 @@ export function SessionRow({ session, highlighted, layout, warmingActive }: Sess
       </Box>
       {layout.showModel && (
         <Box width={layout.modelW}>
-          <Text color={rowColor} dimColor={isDim}>{shortenModelName(session.model)}</Text>
+          <Text color={rowColor} dimColor={isDim}>
+            {shortenModelName(session.model)}
+          </Text>
         </Box>
       )}
       <Box width={layout.cachedW} justifyContent="flex-end">
-        <Text color={rowColor} dimColor={isDim}>{formatTokens(session.cacheReadTokens)} + {formatTokens(session.cacheWriteTokens)}</Text>
+        <Text color={rowColor} dimColor={isDim}>
+          {formatTokens(session.cacheReadTokens)} + {formatTokens(session.cacheWriteTokens)}
+        </Text>
       </Box>
       {layout.showExpiry && (
         <Box width={layout.numW} justifyContent="flex-end">
-          <Text color={rowColor} dimColor={isDim}>{expiryCost}</Text>
+          <Text color={rowColor} dimColor={isDim}>
+            {expiryCost}
+          </Text>
         </Box>
       )}
       <Box width={layout.numW} justifyContent="flex-end">
-        <Text color={rowColor} dimColor={isDim}>{warmingCost}</Text>
+        <Text color={rowColor} dimColor={isDim}>
+          {warmingCost}
+        </Text>
       </Box>
       <Box width={layout.warmsW} justifyContent="flex-end">
-        <Text color={rowColor} dimColor={isDim}>{session.selected ? String(session.warmCount) : '-'}</Text>
+        <Text color={rowColor} dimColor={isDim}>
+          {session.selected ? String(session.warmCount) : '-'}
+        </Text>
       </Box>
       <Box width={layout.nextW} justifyContent="flex-end">
-        <Text color={rowColor} dimColor={isDim}>{formatCountdown(session.nextWarmAt)}</Text>
+        <Text color={rowColor} dimColor={isDim}>
+          {formatCountdown(session.nextWarmAt)}
+        </Text>
       </Box>
     </Box>
   );

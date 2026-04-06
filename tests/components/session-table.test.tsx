@@ -89,6 +89,17 @@ describe('SessionTable', () => {
     expect(frame).toContain('Second');
   });
 
+  it('shows model column at wide widths', () => {
+    const wide = computeLayout(140);
+    const sessions = [makeSession()];
+    const { lastFrame } = render(
+      <SessionTable sessions={sessions} highlightedIndex={0} scrollOffset={0} layout={wide} warmingActive={false} />,
+    );
+    const frame = lastFrame()!;
+    expect(frame).toContain('Model');
+    expect(frame).toContain('opus');
+  });
+
   it('passes warmingActive to session rows', () => {
     const sessions = [makeSession({ isWarm: true, selected: true })];
     const { lastFrame } = render(

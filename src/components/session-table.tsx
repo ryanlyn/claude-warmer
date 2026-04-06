@@ -15,7 +15,9 @@ interface SessionTableProps {
 function ColumnHeader({ label, width, align }: { label: string; width: number; align?: 'right' }) {
   return (
     <Box width={width} justifyContent={align === 'right' ? 'flex-end' : undefined}>
-      <Text bold dimColor>{label}</Text>
+      <Text bold dimColor>
+        {label}
+      </Text>
     </Box>
   );
 }
@@ -28,8 +30,12 @@ export function SessionTable({ sessions, highlightedIndex, scrollOffset, layout,
   return (
     <Box flexDirection="column">
       <Box>
-        <Box width={2}><Text> </Text></Box>
-        <Box width={layout.statusW}><Text> </Text></Box>
+        <Box width={2}>
+          <Text> </Text>
+        </Box>
+        <Box width={layout.statusW}>
+          <Text> </Text>
+        </Box>
         <ColumnHeader label="ID" width={layout.idW} />
         {layout.showDir && <ColumnHeader label="Dir" width={layout.dirW} />}
         <ColumnHeader label="Name" width={layout.nameW} />

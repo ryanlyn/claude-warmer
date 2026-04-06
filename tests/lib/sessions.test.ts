@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { discoverSessions, parseJsonlFile, checkPidAlive } from '../../src/lib/sessions.js';
 import * as fs from 'node:fs';
-import * as path from 'node:path';
+
 import * as os from 'node:os';
 
 vi.mock('node:fs');
@@ -48,10 +48,18 @@ describe('parseJsonlFile', () => {
     const lines = [
       JSON.stringify({
         type: 'assistant',
-        message: { role: 'assistant', model: 'claude-sonnet-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 0 } },
+        message: {
+          role: 'assistant',
+          model: 'claude-sonnet-4-6',
+          usage: { input_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 0 },
+        },
         timestamp: '2026-04-04T17:00:00.000Z',
       }),
-      JSON.stringify({ type: 'last-prompt', lastPrompt: 'A very long prompt that should be truncated after fifty characters for display purposes', sessionId: 'def-456' }),
+      JSON.stringify({
+        type: 'last-prompt',
+        lastPrompt: 'A very long prompt that should be truncated after fifty characters for display purposes',
+        sessionId: 'def-456',
+      }),
     ].join('\n');
 
     const result = parseJsonlFile(lines, 'def-456');
@@ -62,7 +70,11 @@ describe('parseJsonlFile', () => {
     const lines = [
       JSON.stringify({
         type: 'assistant',
-        message: { role: 'assistant', model: 'claude-sonnet-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 0 } },
+        message: {
+          role: 'assistant',
+          model: 'claude-sonnet-4-6',
+          usage: { input_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 0 },
+        },
         timestamp: '2026-04-04T17:00:00.000Z',
       }),
     ].join('\n');
@@ -77,7 +89,11 @@ describe('parseJsonlFile', () => {
       'THIS IS NOT JSON {{{',
       JSON.stringify({
         type: 'assistant',
-        message: { role: 'assistant', model: 'claude-opus-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 50000, cache_creation_input_tokens: 0, output_tokens: 10 } },
+        message: {
+          role: 'assistant',
+          model: 'claude-opus-4-6',
+          usage: { input_tokens: 0, cache_read_input_tokens: 50000, cache_creation_input_tokens: 0, output_tokens: 10 },
+        },
         timestamp: '2026-04-04T17:00:00.000Z',
       }),
     ].join('\n');
@@ -90,7 +106,11 @@ describe('parseJsonlFile', () => {
   it('returns null if no assistant messages found', () => {
     const lines = [
       JSON.stringify({ type: 'custom-title', customTitle: 'Empty', sessionId: 'abc-123' }),
-      JSON.stringify({ type: 'user', message: { role: 'user', content: 'hello' }, timestamp: '2026-04-04T17:00:00.000Z' }),
+      JSON.stringify({
+        type: 'user',
+        message: { role: 'user', content: 'hello' },
+        timestamp: '2026-04-04T17:00:00.000Z',
+      }),
     ].join('\n');
 
     const result = parseJsonlFile(lines, 'abc-123');
@@ -102,7 +122,11 @@ describe('parseJsonlFile', () => {
       '',
       JSON.stringify({
         type: 'assistant',
-        message: { role: 'assistant', model: 'claude-opus-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 1000, cache_creation_input_tokens: 0, output_tokens: 1 } },
+        message: {
+          role: 'assistant',
+          model: 'claude-opus-4-6',
+          usage: { input_tokens: 0, cache_read_input_tokens: 1000, cache_creation_input_tokens: 0, output_tokens: 1 },
+        },
         timestamp: '2026-04-04T17:00:00.000Z',
       }),
       '',
@@ -118,7 +142,11 @@ describe('parseJsonlFile', () => {
     const lines = [
       JSON.stringify({
         type: 'assistant',
-        message: { role: 'assistant', model: 'claude-opus-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 5000, cache_creation_input_tokens: 0, output_tokens: 1 } },
+        message: {
+          role: 'assistant',
+          model: 'claude-opus-4-6',
+          usage: { input_tokens: 0, cache_read_input_tokens: 5000, cache_creation_input_tokens: 0, output_tokens: 1 },
+        },
         timestamp: 12345,
       }),
     ].join('\n');
@@ -133,12 +161,25 @@ describe('parseJsonlFile', () => {
     const lines = [
       JSON.stringify({
         type: 'assistant',
-        message: { role: 'assistant', model: 'claude-opus-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 10000, cache_creation_input_tokens: 0, output_tokens: 5 } },
+        message: {
+          role: 'assistant',
+          model: 'claude-opus-4-6',
+          usage: { input_tokens: 0, cache_read_input_tokens: 10000, cache_creation_input_tokens: 0, output_tokens: 5 },
+        },
         timestamp: '2026-04-04T16:00:00.000Z',
       }),
       JSON.stringify({
         type: 'assistant',
-        message: { role: 'assistant', model: 'claude-opus-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 90000, cache_creation_input_tokens: 5000, output_tokens: 20 } },
+        message: {
+          role: 'assistant',
+          model: 'claude-opus-4-6',
+          usage: {
+            input_tokens: 0,
+            cache_read_input_tokens: 90000,
+            cache_creation_input_tokens: 5000,
+            output_tokens: 20,
+          },
+        },
         timestamp: '2026-04-04T17:00:00.000Z',
       }),
     ].join('\n');
@@ -193,13 +234,28 @@ describe('discoverSessions', () => {
           JSON.stringify({ type: 'custom-title', customTitle: 'Test Session', sessionId: 'abc-123' }),
           JSON.stringify({
             type: 'assistant',
-            message: { role: 'assistant', model: 'claude-opus-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 80000, cache_creation_input_tokens: 2000, output_tokens: 10 } },
+            message: {
+              role: 'assistant',
+              model: 'claude-opus-4-6',
+              usage: {
+                input_tokens: 0,
+                cache_read_input_tokens: 80000,
+                cache_creation_input_tokens: 2000,
+                output_tokens: 10,
+              },
+            },
             timestamp: new Date().toISOString(),
           }),
         ].join('\n');
       }
       if (p.endsWith('999.json')) {
-        return JSON.stringify({ pid: 999, sessionId: 'abc-123', cwd: '/home/user/project', startedAt: Date.now(), kind: 'interactive' });
+        return JSON.stringify({
+          pid: 999,
+          sessionId: 'abc-123',
+          cwd: '/home/user/project',
+          startedAt: Date.now(),
+          kind: 'interactive',
+        });
       }
       return '';
     });
@@ -239,7 +295,16 @@ describe('discoverSessions', () => {
         return [
           JSON.stringify({
             type: 'assistant',
-            message: { role: 'assistant', model: 'claude-opus-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 1000, cache_creation_input_tokens: 0, output_tokens: 1 } },
+            message: {
+              role: 'assistant',
+              model: 'claude-opus-4-6',
+              usage: {
+                input_tokens: 0,
+                cache_read_input_tokens: 1000,
+                cache_creation_input_tokens: 0,
+                output_tokens: 1,
+              },
+            },
             timestamp: new Date().toISOString(),
           }),
         ].join('\n');
@@ -275,7 +340,16 @@ describe('discoverSessions', () => {
         return [
           JSON.stringify({
             type: 'assistant',
-            message: { role: 'assistant', model: 'claude-opus-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 1000, cache_creation_input_tokens: 0, output_tokens: 1 } },
+            message: {
+              role: 'assistant',
+              model: 'claude-opus-4-6',
+              usage: {
+                input_tokens: 0,
+                cache_read_input_tokens: 1000,
+                cache_creation_input_tokens: 0,
+                output_tokens: 1,
+              },
+            },
             timestamp: new Date().toISOString(),
           }),
         ].join('\n');
@@ -356,7 +430,16 @@ describe('discoverSessions', () => {
         return [
           JSON.stringify({
             type: 'assistant',
-            message: { role: 'assistant', model: '', usage: { input_tokens: 0, cache_read_input_tokens: 1000, cache_creation_input_tokens: 0, output_tokens: 1 } },
+            message: {
+              role: 'assistant',
+              model: '',
+              usage: {
+                input_tokens: 0,
+                cache_read_input_tokens: 1000,
+                cache_creation_input_tokens: 0,
+                output_tokens: 1,
+              },
+            },
             timestamp: new Date().toISOString(),
           }),
         ].join('\n');
@@ -390,17 +473,34 @@ describe('discoverSessions', () => {
         return [
           JSON.stringify({
             type: 'assistant',
-            message: { role: 'assistant', model: 'claude-opus-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 1000, cache_creation_input_tokens: 0, output_tokens: 1 } },
+            message: {
+              role: 'assistant',
+              model: 'claude-opus-4-6',
+              usage: {
+                input_tokens: 0,
+                cache_read_input_tokens: 1000,
+                cache_creation_input_tokens: 0,
+                output_tokens: 1,
+              },
+            },
             timestamp: new Date().toISOString(),
           }),
         ].join('\n');
       }
       if (p.endsWith('999.json')) {
-        return JSON.stringify({ pid: 999, sessionId: 'abc-123', cwd: '/test', startedAt: Date.now(), kind: 'interactive' });
+        return JSON.stringify({
+          pid: 999,
+          sessionId: 'abc-123',
+          cwd: '/test',
+          startedAt: Date.now(),
+          kind: 'interactive',
+        });
       }
       return '';
     });
-    vi.spyOn(process, 'kill').mockImplementation(() => { throw new Error('ESRCH'); });
+    vi.spyOn(process, 'kill').mockImplementation(() => {
+      throw new Error('ESRCH');
+    });
 
     const sessions = discoverSessions('claude-sonnet-4-6');
     expect(sessions).toHaveLength(1);
@@ -431,7 +531,16 @@ describe('discoverSessions', () => {
         return [
           JSON.stringify({
             type: 'assistant',
-            message: { role: 'assistant', model: 'claude-opus-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 1000, cache_creation_input_tokens: 0, output_tokens: 1 } },
+            message: {
+              role: 'assistant',
+              model: 'claude-opus-4-6',
+              usage: {
+                input_tokens: 0,
+                cache_read_input_tokens: 1000,
+                cache_creation_input_tokens: 0,
+                output_tokens: 1,
+              },
+            },
             timestamp: new Date().toISOString(),
           }),
         ].join('\n');
@@ -466,7 +575,16 @@ describe('discoverSessions', () => {
         return [
           JSON.stringify({
             type: 'assistant',
-            message: { role: 'assistant', model: 'claude-sonnet-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 1000, cache_creation_input_tokens: 500, output_tokens: 1 } },
+            message: {
+              role: 'assistant',
+              model: 'claude-sonnet-4-6',
+              usage: {
+                input_tokens: 0,
+                cache_read_input_tokens: 1000,
+                cache_creation_input_tokens: 500,
+                output_tokens: 1,
+              },
+            },
             timestamp: new Date().toISOString(),
           }),
         ].join('\n');
@@ -475,7 +593,16 @@ describe('discoverSessions', () => {
         return [
           JSON.stringify({
             type: 'assistant',
-            message: { role: 'assistant', model: 'claude-sonnet-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 100000, cache_creation_input_tokens: 5000, output_tokens: 10 } },
+            message: {
+              role: 'assistant',
+              model: 'claude-sonnet-4-6',
+              usage: {
+                input_tokens: 0,
+                cache_read_input_tokens: 100000,
+                cache_creation_input_tokens: 5000,
+                output_tokens: 10,
+              },
+            },
             timestamp: new Date().toISOString(),
           }),
         ].join('\n');
@@ -484,7 +611,16 @@ describe('discoverSessions', () => {
         return [
           JSON.stringify({
             type: 'assistant',
-            message: { role: 'assistant', model: 'claude-sonnet-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 200000, cache_creation_input_tokens: 10000, output_tokens: 10 } },
+            message: {
+              role: 'assistant',
+              model: 'claude-sonnet-4-6',
+              usage: {
+                input_tokens: 0,
+                cache_read_input_tokens: 200000,
+                cache_creation_input_tokens: 10000,
+                output_tokens: 10,
+              },
+            },
             timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
           }),
         ].join('\n');
@@ -524,7 +660,16 @@ describe('discoverSessions', () => {
         return [
           JSON.stringify({
             type: 'assistant',
-            message: { role: 'assistant', model: 'claude-sonnet-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 200000, cache_creation_input_tokens: 10000, output_tokens: 1 } },
+            message: {
+              role: 'assistant',
+              model: 'claude-sonnet-4-6',
+              usage: {
+                input_tokens: 0,
+                cache_read_input_tokens: 200000,
+                cache_creation_input_tokens: 10000,
+                output_tokens: 1,
+              },
+            },
             timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
           }),
         ].join('\n');
@@ -533,13 +678,28 @@ describe('discoverSessions', () => {
         return [
           JSON.stringify({
             type: 'assistant',
-            message: { role: 'assistant', model: 'claude-sonnet-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 1000, cache_creation_input_tokens: 500, output_tokens: 1 } },
+            message: {
+              role: 'assistant',
+              model: 'claude-sonnet-4-6',
+              usage: {
+                input_tokens: 0,
+                cache_read_input_tokens: 1000,
+                cache_creation_input_tokens: 500,
+                output_tokens: 1,
+              },
+            },
             timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
           }),
         ].join('\n');
       }
       if (p.endsWith('999.json')) {
-        return JSON.stringify({ pid: 999, sessionId: 'live-session', cwd: '/test', startedAt: Date.now(), kind: 'interactive' });
+        return JSON.stringify({
+          pid: 999,
+          sessionId: 'live-session',
+          cwd: '/test',
+          startedAt: Date.now(),
+          kind: 'interactive',
+        });
       }
       return '';
     });
@@ -574,7 +734,16 @@ describe('discoverSessions', () => {
         return [
           JSON.stringify({
             type: 'assistant',
-            message: { role: 'assistant', model: 'claude-sonnet-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 200000, cache_creation_input_tokens: 10000, output_tokens: 1 } },
+            message: {
+              role: 'assistant',
+              model: 'claude-sonnet-4-6',
+              usage: {
+                input_tokens: 0,
+                cache_read_input_tokens: 200000,
+                cache_creation_input_tokens: 10000,
+                output_tokens: 1,
+              },
+            },
             timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
           }),
         ].join('\n');
@@ -583,7 +752,16 @@ describe('discoverSessions', () => {
         return [
           JSON.stringify({
             type: 'assistant',
-            message: { role: 'assistant', model: 'claude-sonnet-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 50000, cache_creation_input_tokens: 1000, output_tokens: 1 } },
+            message: {
+              role: 'assistant',
+              model: 'claude-sonnet-4-6',
+              usage: {
+                input_tokens: 0,
+                cache_read_input_tokens: 50000,
+                cache_creation_input_tokens: 1000,
+                output_tokens: 1,
+              },
+            },
             timestamp: new Date().toISOString(),
           }),
         ].join('\n');
@@ -592,7 +770,16 @@ describe('discoverSessions', () => {
         return [
           JSON.stringify({
             type: 'assistant',
-            message: { role: 'assistant', model: 'claude-sonnet-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 1000, cache_creation_input_tokens: 500, output_tokens: 1 } },
+            message: {
+              role: 'assistant',
+              model: 'claude-sonnet-4-6',
+              usage: {
+                input_tokens: 0,
+                cache_read_input_tokens: 1000,
+                cache_creation_input_tokens: 500,
+                output_tokens: 1,
+              },
+            },
             timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
           }),
         ].join('\n');
@@ -601,16 +788,37 @@ describe('discoverSessions', () => {
         return [
           JSON.stringify({
             type: 'assistant',
-            message: { role: 'assistant', model: 'claude-sonnet-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 2000, cache_creation_input_tokens: 500, output_tokens: 1 } },
+            message: {
+              role: 'assistant',
+              model: 'claude-sonnet-4-6',
+              usage: {
+                input_tokens: 0,
+                cache_read_input_tokens: 2000,
+                cache_creation_input_tokens: 500,
+                output_tokens: 1,
+              },
+            },
             timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
           }),
         ].join('\n');
       }
       if (p.endsWith('998.json')) {
-        return JSON.stringify({ pid: 998, sessionId: 'live-a', cwd: '/test', startedAt: Date.now(), kind: 'interactive' });
+        return JSON.stringify({
+          pid: 998,
+          sessionId: 'live-a',
+          cwd: '/test',
+          startedAt: Date.now(),
+          kind: 'interactive',
+        });
       }
       if (p.endsWith('999.json')) {
-        return JSON.stringify({ pid: 999, sessionId: 'live-b', cwd: '/test', startedAt: Date.now(), kind: 'interactive' });
+        return JSON.stringify({
+          pid: 999,
+          sessionId: 'live-b',
+          cwd: '/test',
+          startedAt: Date.now(),
+          kind: 'interactive',
+        });
       }
       return '';
     });
@@ -653,7 +861,11 @@ describe('discoverSessions', () => {
         return [
           JSON.stringify({
             type: 'assistant',
-            message: { role: 'assistant', model: 'claude-sonnet-4-6', usage: { input_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 1 } },
+            message: {
+              role: 'assistant',
+              model: 'claude-sonnet-4-6',
+              usage: { input_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 1 },
+            },
             timestamp: new Date().toISOString(),
           }),
         ].join('\n');
@@ -662,7 +874,16 @@ describe('discoverSessions', () => {
         return [
           JSON.stringify({
             type: 'assistant',
-            message: { role: 'assistant', model: 'claude-sonnet-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 5000, cache_creation_input_tokens: 0, output_tokens: 1 } },
+            message: {
+              role: 'assistant',
+              model: 'claude-sonnet-4-6',
+              usage: {
+                input_tokens: 0,
+                cache_read_input_tokens: 5000,
+                cache_creation_input_tokens: 0,
+                output_tokens: 1,
+              },
+            },
             timestamp: new Date().toISOString(),
           }),
         ].join('\n');
@@ -696,7 +917,16 @@ describe('discoverSessions', () => {
         return [
           JSON.stringify({
             type: 'assistant',
-            message: { role: 'assistant', model: 'claude-sonnet-4-6', usage: { input_tokens: 0, cache_read_input_tokens: 100000, cache_creation_input_tokens: 0, output_tokens: 1 } },
+            message: {
+              role: 'assistant',
+              model: 'claude-sonnet-4-6',
+              usage: {
+                input_tokens: 0,
+                cache_read_input_tokens: 100000,
+                cache_creation_input_tokens: 0,
+                output_tokens: 1,
+              },
+            },
             timestamp: new Date().toISOString(),
           }),
         ].join('\n');

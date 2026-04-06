@@ -4,8 +4,10 @@ import { Box, Text } from 'ink';
 function KeyHint({ keyName, label }: { keyName: string; label: string }) {
   return (
     <Text>
-      <Text bold color="cyan">{keyName}</Text>
-      <Text dimColor> {label}  </Text>
+      <Text bold color="cyan">
+        {keyName}
+      </Text>
+      <Text dimColor> {label} </Text>
     </Text>
   );
 }

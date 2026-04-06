@@ -36,13 +36,17 @@ export function computeLayout(cols: number): ColumnLayout {
   const showExpiry = cols >= 100;
   const showDir = cols >= 80;
 
-  const fixed = selectW + statusW + idW
-    + (showDir ? dirW : 0)
-    + (showModel ? modelW : 0)
-    + cachedW
-    + (showExpiry ? numW : 0)
-    + numW  // warm cost
-    + warmsW + nextW;
+  const fixed =
+    selectW +
+    statusW +
+    idW +
+    (showDir ? dirW : 0) +
+    (showModel ? modelW : 0) +
+    cachedW +
+    (showExpiry ? numW : 0) +
+    numW + // warm cost
+    warmsW +
+    nextW;
 
   const nameW = Math.max(10, cols - fixed);
 
