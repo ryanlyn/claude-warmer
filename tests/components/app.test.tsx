@@ -104,6 +104,13 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 50));
 beforeEach(() => {
   vi.resetAllMocks();
   mockSessions.discoverSessions.mockReturnValue([defaultSession()]);
+  vi.mocked(warmerModule.warmSession).mockResolvedValue({
+    sessionId: 'abc-123',
+    usage: { inputTokens: 0, cacheReadInputTokens: 80000, cacheCreationInputTokens: 1000, outputTokens: 3 },
+    model: 'claude-opus-4-6',
+    costUsd: 0.04,
+    error: null,
+  });
 });
 
 describe('App', () => {

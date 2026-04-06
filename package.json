@@ -1,10 +1,13 @@
 {
-  "name": "claude-cache-warmer",
+  "name": "claude-warmer",
   "version": "0.1.0",
   "type": "module",
   "bin": {
-    "claude-cache-warmer": "./dist/index.js"
+    "claude-warmer": "./dist/index.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "dev": "tsx src/index.tsx",
     "build": "tsup src/index.tsx --format esm --clean",
@@ -15,7 +18,8 @@
     "lint": "eslint .",
     "format:check": "prettier --check 'src/**/*.{ts,tsx}' 'tests/**/*.{ts,tsx}' '*.{ts,js,json}'",
     "format": "prettier --write 'src/**/*.{ts,tsx}' 'tests/**/*.{ts,tsx}' '*.{ts,js,json}'",
-    "check": "npm run lint && npm run format:check && npm run test:coverage"
+    "check": "npm run lint && npm run format:check && npm run test:coverage",
+    "prepublishOnly": "npm run check && npm run build"
   },
   "engines": {
     "node": ">=18"
