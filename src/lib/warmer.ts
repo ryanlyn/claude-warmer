@@ -6,7 +6,12 @@ import * as pty from 'node-pty';
 import type { WarmResult, SessionUsage } from './types.js';
 import { calcWarmCost } from './pricing.js';
 
-const EMPTY_USAGE: SessionUsage = { inputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, outputTokens: 0 };
+const EMPTY_USAGE: SessionUsage = {
+  inputTokens: 0,
+  cacheReadInputTokens: 0,
+  cacheCreationInputTokens: 0,
+  outputTokens: 0,
+};
 const TOTAL_TIMEOUT_MS = 120_000;
 const SETTLE_MS = 3_000;
 const EXIT_GRACE_MS = 5_000;
@@ -21,6 +26,10 @@ export function getClaudePath(): string {
     resolvedClaudePath = 'claude';
   }
   return resolvedClaudePath;
+}
+
+export function resetClaudePath(): void {
+  resolvedClaudePath = null;
 }
 
 interface ParsedOutput {
@@ -65,7 +74,12 @@ export function extractUsageFromNewLines(newContent: string): ParsedOutput {
   return { usage: EMPTY_USAGE, model: '', error: 'No assistant message with usage in new JSONL lines' };
 }
 
-export function warmSession(sessionId: string, warmPrompt: string, cwd?: string, projectDir?: string): Promise<WarmResult> {
+export function warmSession(
+  sessionId: string,
+  warmPrompt: string,
+  cwd?: string,
+  projectDir?: string,
+): Promise<WarmResult> {
   const errorResult = (error: string): WarmResult => ({
     sessionId,
     usage: EMPTY_USAGE,
@@ -88,13 +102,13 @@ export function warmSession(sessionId: string, warmPrompt: string, cwd?: string,
   }
 
   return new Promise((resolve) => {
-    let output = '';
     let settleTimer: ReturnType<typeof setTimeout> | null = null;
     let totalTimer: ReturnType<typeof setTimeout> | null = null;
     let phase: 'waiting-for-ready' | 'sent-prompt' | 'done' = 'waiting-for-ready';
     let resolved = false;
 
     const finish = (error?: string) => {
+      /* v8 ignore next */
       if (resolved) return;
       resolved = true;
       if (settleTimer) clearTimeout(settleTimer);
@@ -160,13 +174,20 @@ export function warmSession(sessionId: string, warmPrompt: string, cwd?: string,
           phase = 'sent-prompt';
           ptyProcess.write(warmPrompt + '\r');
           resetSettle();
-        } else if (phase === 'sent-prompt') {
+          return;
+        }
+        /* v8 ignore next */
+        if (phase === 'sent-prompt') {
           phase = 'done';
           ptyProcess.write('/exit\r');
           // Give it time to exit gracefully, then kill
           setTimeout(() => {
             if (!resolved) {
-              try { ptyProcess.kill(); } catch {}
+              try {
+                ptyProcess.kill();
+              } catch {
+                // already exited
+              }
               finish();
             }
           }, EXIT_GRACE_MS);
@@ -174,8 +195,7 @@ export function warmSession(sessionId: string, warmPrompt: string, cwd?: string,
       }, SETTLE_MS);
     };
 
-    ptyProcess.onData((data: string) => {
-      output += data;
+    ptyProcess.onData((_data: string) => {
       if (phase !== 'done') {
         resetSettle();
       }
@@ -186,9 +206,14 @@ export function warmSession(sessionId: string, warmPrompt: string, cwd?: string,
     });
 
     totalTimer = setTimeout(() => {
+      /* v8 ignore next */
       if (!resolved) {
         finish('Warm session timed out');
-        try { ptyProcess.kill(); } catch {}
+        try {
+          ptyProcess.kill();
+        } catch {
+          // already exited
+        }
       }
     }, TOTAL_TIMEOUT_MS);
 

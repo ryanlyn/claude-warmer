@@ -15,7 +15,14 @@ vi.mock('node:child_process', () => ({
 let capturedOnSubmit: ((value: string) => void) | null = null;
 
 vi.mock('@inkjs/ui', () => ({
-  TextInput: ({ defaultValue, onSubmit }: { defaultValue?: string; onSubmit?: (value: string) => void; children?: ReactNode }) => {
+  TextInput: ({
+    defaultValue,
+    onSubmit,
+  }: {
+    defaultValue?: string;
+    onSubmit?: (value: string) => void;
+    children?: ReactNode;
+  }) => {
     capturedOnSubmit = onSubmit ?? null;
     return React.createElement('ink-text', null, `[TextInput:${defaultValue ?? ''}]`);
   },
@@ -101,23 +108,17 @@ beforeEach(() => {
 
 describe('App', () => {
   it('renders header with app name', () => {
-    const { lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />);
     expect(lastFrame()!).toContain('Claude Warmer');
   });
 
   it('renders discovered sessions', () => {
-    const { lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />);
     expect(lastFrame()!).toContain('Test Session');
   });
 
   it('renders footer with keybindings', () => {
-    const { lastFrame } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />);
     expect(lastFrame()!).toContain('quit');
   });
 
@@ -234,9 +235,7 @@ describe('App', () => {
   });
 
   it('quits on q key', async () => {
-    const { stdin } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
-    );
+    const { stdin } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />);
     await tick();
 
     stdin.write('q');
@@ -367,10 +366,12 @@ describe('App', () => {
   });
 
   it('warming toggle off resets sessions with warmingStatus warming to paused', async () => {
-    mockSessions.discoverSessions.mockReturnValue([{
-      ...defaultSession(),
-      warmingStatus: 'warming',
-    }]);
+    mockSessions.discoverSessions.mockReturnValue([
+      {
+        ...defaultSession(),
+        warmingStatus: 'warming',
+      },
+    ]);
 
     const { stdin, lastFrame } = render(
       <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
@@ -441,6 +442,33 @@ describe('App', () => {
     vi.useRealTimers();
   });
 
+  it('new sessions from refresh start unselected', async () => {
+    vi.useFakeTimers();
+    const { lastFrame, unmount } = render(
+      <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
+    );
+
+    // After initial render, mock a new session appearing on next refresh
+    const newSession = {
+      ...defaultSession(),
+      sessionId: 'new-999',
+      name: 'New Session',
+      selected: true, // discoverSessions returns selected:true for warm sessions
+      isWarm: true,
+    };
+    mockSessions.discoverSessions.mockReturnValue([defaultSession(), newSession]);
+
+    // Trigger the 30s refresh interval
+    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(50);
+
+    const frame = lastFrame()!;
+    expect(frame).toContain('New Session');
+
+    unmount();
+    vi.useRealTimers();
+  });
+
   it('copies session ID to clipboard on c key', async () => {
     const mockExecSync = vi.mocked(childProcess.execSync);
     mockExecSync.mockReturnValue(Buffer.from(''));
@@ -458,7 +486,9 @@ describe('App', () => {
 
   it('c key handles clipboard error gracefully', async () => {
     const mockExecSync = vi.mocked(childProcess.execSync);
-    mockExecSync.mockImplementation(() => { throw new Error('pbcopy not found'); });
+    mockExecSync.mockImplementation(() => {
+      throw new Error('pbcopy not found');
+    });
 
     const { stdin, lastFrame } = render(
       <App intervalMinutes={55} warmPrompt="Reply 'ok'" defaultModel="claude-sonnet-4-6" />,
@@ -674,12 +704,14 @@ describe('App', () => {
 
   it('tick merges warming results while preserving user selection changes', async () => {
     // Use a session that's cold (will be scheduled immediately by bootstrap)
-    mockSessions.discoverSessions.mockReturnValue([{
-      ...defaultSession(),
-      lastAssistantTimestamp: Date.now() - 2 * 60 * 60 * 1000,
-      isWarm: false,
-      selected: true,
-    }]);
+    mockSessions.discoverSessions.mockReturnValue([
+      {
+        ...defaultSession(),
+        lastAssistantTimestamp: Date.now() - 2 * 60 * 60 * 1000,
+        isWarm: false,
+        selected: true,
+      },
+    ]);
 
     // Mock warmSession to return a result that differs from initial state
     const mockWarm = vi.mocked(warmerModule.warmSession);

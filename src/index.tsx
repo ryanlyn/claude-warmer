@@ -37,10 +37,4 @@ if (isNaN(intervalMinutes) || intervalMinutes < 1 || intervalMinutes > 59) {
 
 process.stdout.write('\x1B[2J\x1B[H');
 
-render(
-  <App
-    intervalMinutes={intervalMinutes}
-    warmPrompt={values.prompt!}
-    defaultModel={values.model!}
-  />,
-);
+render(<App intervalMinutes={intervalMinutes} warmPrompt={values.prompt!} defaultModel={values.model!} />);

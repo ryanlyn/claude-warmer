@@ -46,7 +46,9 @@ function runSession(args: string[], prompt: string): Promise<string> {
       env: process.env as Record<string, string>,
     });
 
-    p.onData((d: string) => { output += d; });
+    p.onData((d: string) => {
+      output += d;
+    });
 
     // Send prompt after startup delay
     const promptTimer = setTimeout(() => {
@@ -72,7 +74,11 @@ function runSession(args: string[], prompt: string): Promise<string> {
     setTimeout(() => {
       clearTimeout(promptTimer);
       clearTimeout(exitTimer);
-      try { p.kill(); } catch {}
+      try {
+        p.kill();
+      } catch {
+        // already exited
+      }
       reject(new Error('session timed out'));
     }, 90_000);
   });
@@ -88,7 +94,10 @@ function readUsageAfter(jsonlPath: string, offset: number): { reads: number; wri
   fs.readSync(fd, buf, 0, buf.length, offset);
   fs.closeSync(fd);
 
-  const lines = buf.toString('utf-8').split('\n').filter(l => l.trim());
+  const lines = buf
+    .toString('utf-8')
+    .split('\n')
+    .filter((l) => l.trim());
   for (let i = lines.length - 1; i >= 0; i--) {
     try {
       const r = JSON.parse(lines[i]);
@@ -99,7 +108,9 @@ function readUsageAfter(jsonlPath: string, offset: number): { reads: number; wri
           writes: msg.usage.cache_creation_input_tokens || 0,
         };
       }
-    } catch {}
+    } catch {
+      // skip malformed lines
+    }
   }
   return null;
 }
@@ -108,6 +119,7 @@ describe('warm cache hits (e2e)', () => {
   it('consecutive resumes share prefix cache', async () => {
     // Step 1: Create a fresh session
     const createOutput = await runSession([], PROMPT);
+    // eslint-disable-next-line no-control-regex
     const stripped = createOutput.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
     const match = stripped.match(/claude --resume ([a-f0-9-]{36})/);
     expect(match).not.toBeNull();

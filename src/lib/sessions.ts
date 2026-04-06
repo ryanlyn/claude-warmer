@@ -165,8 +165,8 @@ export function discoverSessions(defaultModel: string): Session[] {
   }
 
   sessions.sort((a, b) => {
-    const aTier = a.isLive ? 2 : (a.isWarm ? 1 : 0);
-    const bTier = b.isLive ? 2 : (b.isWarm ? 1 : 0);
+    const aTier = a.isLive ? 2 : a.isWarm ? 1 : 0;
+    const bTier = b.isLive ? 2 : b.isWarm ? 1 : 0;
     if (aTier !== bTier) return bTier - aTier;
     const aCached = a.cacheReadTokens + a.cacheWriteTokens;
     const bCached = b.cacheReadTokens + b.cacheWriteTokens;

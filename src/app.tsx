@@ -68,24 +68,27 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
     return () => clearInterval(interval);
   }, [defaultModel]);
 
-  const toggleSelection = useCallback((index: number) => {
-    setSessions((prev) => {
-      const updated = [...prev];
-      const session = updated[index];
-      const newSelected = !session.selected;
-      updated[index] = { ...session, selected: newSelected };
+  const toggleSelection = useCallback(
+    (index: number) => {
+      setSessions((prev) => {
+        const updated = [...prev];
+        const session = updated[index];
+        const newSelected = !session.selected;
+        updated[index] = { ...session, selected: newSelected };
 
-      if (warming) {
-        if (newSelected) {
-          updated[index] = schedulerRef.current.addSession(updated[index]);
-        } else {
-          updated[index] = schedulerRef.current.removeSession(updated[index]);
+        if (warming) {
+          if (newSelected) {
+            updated[index] = schedulerRef.current.addSession(updated[index]);
+          } else {
+            updated[index] = schedulerRef.current.removeSession(updated[index]);
+          }
         }
-      }
 
-      return updated;
-    });
-  }, [warming]);
+        return updated;
+      });
+    },
+    [warming],
+  );
 
   const selectActive = useCallback(() => {
     setSessions((prev) =>
@@ -122,7 +125,11 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
         return schedulerRef.current.bootstrap(current);
       }
       schedulerRef.current.stop();
-      return current.map((s) => ({ ...s, nextWarmAt: null, warmingStatus: s.warmingStatus === 'warming' ? 'idle' : s.warmingStatus }));
+      return current.map((s) => ({
+        ...s,
+        nextWarmAt: null,
+        warmingStatus: s.warmingStatus === 'warming' ? 'idle' : s.warmingStatus,
+      }));
     });
   }, [warming]);
 
@@ -163,74 +170,77 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
     return () => clearInterval(interval);
   }, [warming, warmPrompt]);
 
-  useInput((input, key) => {
-    if (input === 'q') {
-      schedulerRef.current.stop();
-      exit();
-      return;
-    }
-
-    if (key.return) {
-      toggleWarming();
-      return;
-    }
-
-    if (input === 'a') {
-      selectActive();
-      return;
-    }
-
-    if (input === 'n') {
-      selectNone();
-      return;
-    }
-
-    if (input === 'p') {
-      setEditingField('prompt');
-      return;
-    }
-
-    if (input === 'i') {
-      setEditingField('interval');
-      return;
-    }
-
-    if (input === 'c') {
-      copySessionId();
-      return;
-    }
-
-    if (input === ' ') {
-      if (sessions.length > 0) {
-        toggleSelection(highlightedIndex);
+  useInput(
+    (input, key) => {
+      if (input === 'q') {
+        schedulerRef.current.stop();
+        exit();
+        return;
       }
-      return;
-    }
 
-    if (key.upArrow) {
-      setHighlightedIndex((prev) => {
-        const next = Math.max(0, prev - 1);
-        setScrollOffset((offset) => {
-          if (next < offset) return next;
-          return offset;
-        });
-        return next;
-      });
-      return;
-    }
+      if (key.return) {
+        toggleWarming();
+        return;
+      }
 
-    if (key.downArrow) {
-      setHighlightedIndex((prev) => {
-        const next = Math.min(sessions.length - 1, prev + 1);
-        setScrollOffset((offset) => {
-          if (next >= offset + visibleRows) return next - visibleRows + 1;
-          return offset;
+      if (input === 'a') {
+        selectActive();
+        return;
+      }
+
+      if (input === 'n') {
+        selectNone();
+        return;
+      }
+
+      if (input === 'p') {
+        setEditingField('prompt');
+        return;
+      }
+
+      if (input === 'i') {
+        setEditingField('interval');
+        return;
+      }
+
+      if (input === 'c') {
+        copySessionId();
+        return;
+      }
+
+      if (input === ' ') {
+        if (sessions.length > 0) {
+          toggleSelection(highlightedIndex);
+        }
+        return;
+      }
+
+      if (key.upArrow) {
+        setHighlightedIndex((prev) => {
+          const next = Math.max(0, prev - 1);
+          setScrollOffset((offset) => {
+            if (next < offset) return next;
+            return offset;
+          });
+          return next;
         });
-        return next;
-      });
-      return;
-    }
-  }, { isActive: editingField === null });
+        return;
+      }
+
+      if (key.downArrow) {
+        setHighlightedIndex((prev) => {
+          const next = Math.min(sessions.length - 1, prev + 1);
+          setScrollOffset((offset) => {
+            if (next >= offset + visibleRows) return next - visibleRows + 1;
+            return offset;
+          });
+          return next;
+        });
+        return;
+      }
+    },
+    { isActive: editingField === null },
+  );
 
   const handlePromptSubmit = useCallback((value: string) => {
     if (value.trim()) {
@@ -239,17 +249,20 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
     setEditingField(null);
   }, []);
 
-  const handleIntervalSubmit = useCallback((value: string) => {
-    const parsed = parseInt(value, 10);
-    if (!isNaN(parsed) && parsed >= 1 && parsed <= 59) {
-      setIntervalMinutes(parsed);
-      schedulerRef.current = new Scheduler(warmSession, parsed);
-      if (warming) {
-        setSessions((current) => schedulerRef.current.bootstrap(current));
+  const handleIntervalSubmit = useCallback(
+    (value: string) => {
+      const parsed = parseInt(value, 10);
+      if (!isNaN(parsed) && parsed >= 1 && parsed <= 59) {
+        setIntervalMinutes(parsed);
+        schedulerRef.current = new Scheduler(warmSession, parsed);
+        if (warming) {
+          setSessions((current) => schedulerRef.current.bootstrap(current));
+        }
       }
-    }
-    setEditingField(null);
-  }, [warming]);
+      setEditingField(null);
+    },
+    [warming],
+  );
 
   return (
     <Box flexDirection="column">
@@ -260,16 +273,26 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
         refreshIntervalSec={REFRESH_INTERVAL_SEC}
         lastRefreshed={lastRefreshed}
       />
-      <SessionTable sessions={sessions} highlightedIndex={highlightedIndex} scrollOffset={scrollOffset} layout={layout} warmingActive={warming} />
+      <SessionTable
+        sessions={sessions}
+        highlightedIndex={highlightedIndex}
+        scrollOffset={scrollOffset}
+        layout={layout}
+        warmingActive={warming}
+      />
       {editingField === 'prompt' && (
         <Box>
-          <Text bold color="cyan">Prompt: </Text>
+          <Text bold color="cyan">
+            Prompt:{' '}
+          </Text>
           <TextInput defaultValue={warmPrompt} onSubmit={handlePromptSubmit} />
         </Box>
       )}
       {editingField === 'interval' && (
         <Box>
-          <Text bold color="cyan">Interval (minutes): </Text>
+          <Text bold color="cyan">
+            Interval (minutes):{' '}
+          </Text>
           <TextInput defaultValue={String(intervalMinutes)} onSubmit={handleIntervalSubmit} />
         </Box>
       )}
