@@ -24,9 +24,25 @@
   "engines": {
     "node": ">=18"
   },
-  "keywords": [],
-  "author": "",
+  "description": "TUI tool that keeps Claude Code session caches warm by periodically resuming sessions",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "cache",
+    "warmer",
+    "tui",
+    "ink"
+  ],
+  "author": "Ryan Lyn",
   "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ryanlyn/claude-warmer.git"
+  },
+  "homepage": "https://github.com/ryanlyn/claude-warmer",
+  "bugs": {
+    "url": "https://github.com/ryanlyn/claude-warmer/issues"
+  },
   "dependencies": {
     "@inkjs/ui": "^2.0.0",
     "ink": "^5.2.1",

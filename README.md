@@ -8,27 +8,18 @@ Without warming, resuming a session older than 1 hour means a full cache write -
 
 <img width="1073" height="652" alt="image" src="https://github.com/user-attachments/assets/92e7a474-3f60-47e2-9f7c-4df41be715d2" />
 
+Not affiliated with or endorsed by Anthropic.
+
 ## Install
 
 ```
-npm install
-npm run build
+npx claude-warmer
 ```
 
-If node-pty fails with `posix_spawnp`, run:
+Or install globally:
 ```
-chmod +x node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper
-```
-
-## Usage
-
-```
-npx tsx src/index.tsx
-```
-
-Or after building:
-```
-node dist/index.js
+npm install -g claude-warmer
+claude-warmer
 ```
 
 Options:
@@ -57,11 +48,24 @@ Options:
 | c | Copy session ID |
 | q | Quit |
 
-## Tests
+## Development
 
 ```
-npm test          # unit tests
+git clone https://github.com/ryanlyn/claude-warmer.git
+cd claude-warmer
+npm install
+npm run dev
+```
+
+If node-pty fails with `posix_spawnp` on macOS Apple Silicon, run:
+```
+chmod +x node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper
+```
+
+### Tests
+
+```
+npm test          # unit tests (100% coverage required)
+npm run check     # lint + format + coverage
 npm run test:e2e  # E2E cache hit test (hits real API, slow)
 ```
-
-The E2E test creates a session, warms it twice from separate processes, and asserts the second warm gets >90% cache hits. It currently fails due to the limitation above and serves as a regression test for when the fix ships.

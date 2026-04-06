@@ -139,7 +139,7 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
     /* v8 ignore next */
     if (!session) return;
     try {
-      execSync(`printf '%s' '${session.sessionId}' | pbcopy`);
+      execSync('pbcopy', { input: session.sessionId });
     } catch {
       // silently ignore clipboard errors
     }

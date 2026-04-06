@@ -33,8 +33,7 @@ TUI tool that keeps Claude Code session caches warm by periodically resuming ses
 
 Consecutive `claude --resume` calls from different processes get ~53% cache hit rate instead of >90%. Root cause: the Agent tool description in the API request lists plugin-provided agent types in non-deterministic order (depends on async plugin loading). This breaks prefix cache for all conversation messages downstream.
 
-- Claude Code's attachment path (`internal_claude_source_path`) already sorts agent types, but it's behind the `claude_internal_feature_flag` feature flag which is currently off.
-- The inline path (`internal_claude_source_path`) does not sort.
+- A fix (sorting agent types before including them in the prompt) exists behind a feature flag in Claude Code. Once enabled, cross-process cache hits should reach >90%.
 - The E2E test (`tests/e2e/warm-cache-hits.test.ts`) asserts >90% hit rate and is expected to fail until this is fixed in Claude Code.
 
 ## Testing

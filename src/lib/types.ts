@@ -36,10 +36,4 @@ export interface WarmResult {
   error: string | null;
 }
 
-export interface AppConfig {
-  intervalMinutes: number;
-  warmPrompt: string;
-  defaultModel: string;
-}
-
 export const WARM_THRESHOLD_MS = 55 * 60 * 1000;
