@@ -114,9 +114,24 @@ function readUsageAfter(jsonlPath: string, offset: number): { reads: number; wri
   return null;
 }
 
+/** Run claude in print mode (-p) with a prompt. Non-interactive. */
+function runPrintSession(args: string[], prompt: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const { execFile } = require('node:child_process');
+    execFile(
+      getClaudePath(),
+      [...args, '-p', prompt],
+      { cwd: CWD, env: process.env, maxBuffer: 10 * 1024 * 1024, timeout: 90_000 },
+      (err: Error | null, stdout: string) => {
+        if (err) reject(err);
+        else resolve(stdout);
+      }
+    );
+  });
+}
+
 describe('warm cache hits (e2e)', () => {
-  it('consecutive resumes share prefix cache', async () => {
-    // Step 1: Create a fresh session
+  it('consecutive PTY resumes share prefix cache (no flag)', async () => {
     const createOutput = await runSession([], PROMPT);
     // eslint-disable-next-line no-control-regex
     const stripped = createOutput.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
@@ -126,16 +141,14 @@ describe('warm cache hits (e2e)', () => {
     const sessionId = match![1];
     const jsonlPath = path.join(PROJECTS_ROOT, `${sessionId}.jsonl`);
     expect(fs.existsSync(jsonlPath)).toBe(true);
-    console.log(`Session: ${sessionId}`);
+    console.log(`[pty no-flag] Session: ${sessionId}`);
 
-    // Step 2: First warm (establishes the resume-path cache prefix)
     const offset1 = fs.statSync(jsonlPath).size;
     await runSession(['--resume', sessionId], PROMPT);
     const warm1 = readUsageAfter(jsonlPath, offset1);
     expect(warm1).not.toBeNull();
-    console.log(`Warm 1: reads=${warm1!.reads} writes=${warm1!.writes}`);
+    console.log(`[pty no-flag] Warm 1: reads=${warm1!.reads} writes=${warm1!.writes}`);
 
-    // Step 3: Second warm (should hit cache from warm 1's prefix)
     const offset2 = fs.statSync(jsonlPath).size;
     await runSession(['--resume', sessionId], PROMPT);
     const warm2 = readUsageAfter(jsonlPath, offset2);
@@ -143,7 +156,187 @@ describe('warm cache hits (e2e)', () => {
 
     const total = warm2!.reads + warm2!.writes;
     const hitRate = total > 0 ? warm2!.reads / total : 0;
-    console.log(`Warm 2: reads=${warm2!.reads} writes=${warm2!.writes} hit=${(hitRate * 100).toFixed(1)}%`);
+    console.log(`[pty no-flag] Warm 2: reads=${warm2!.reads} writes=${warm2!.writes} hit=${(hitRate * 100).toFixed(1)}%`);
+
+    expect(hitRate).toBeGreaterThanOrEqual(EXPECTED_CACHE_HIT_RATE);
+  }, 300_000);
+
+  it('consecutive PTY resumes share prefix cache (--exclude-dynamic-system-prompt-sections)', async () => {
+    const FLAG = '--exclude-dynamic-system-prompt-sections';
+    const createOutput = await runSession([FLAG], PROMPT);
+    // eslint-disable-next-line no-control-regex
+    const stripped = createOutput.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
+    const match = stripped.match(/claude --resume ([a-f0-9-]{36})/);
+    expect(match).not.toBeNull();
+
+    const sessionId = match![1];
+    const jsonlPath = path.join(PROJECTS_ROOT, `${sessionId}.jsonl`);
+    expect(fs.existsSync(jsonlPath)).toBe(true);
+    console.log(`[pty flag] Session: ${sessionId}`);
+
+    const offset1 = fs.statSync(jsonlPath).size;
+    await runSession(['--resume', sessionId, FLAG], PROMPT);
+    const warm1 = readUsageAfter(jsonlPath, offset1);
+    expect(warm1).not.toBeNull();
+    console.log(`[pty flag] Warm 1: reads=${warm1!.reads} writes=${warm1!.writes}`);
+
+    const offset2 = fs.statSync(jsonlPath).size;
+    await runSession(['--resume', sessionId, FLAG], PROMPT);
+    const warm2 = readUsageAfter(jsonlPath, offset2);
+    expect(warm2).not.toBeNull();
+
+    const total = warm2!.reads + warm2!.writes;
+    const hitRate = total > 0 ? warm2!.reads / total : 0;
+    console.log(`[pty flag] Warm 2: reads=${warm2!.reads} writes=${warm2!.writes} hit=${(hitRate * 100).toFixed(1)}%`);
+
+    expect(hitRate).toBeGreaterThanOrEqual(EXPECTED_CACHE_HIT_RATE);
+  }, 300_000);
+
+  it('consecutive print-mode resumes share prefix cache (no flag)', async () => {
+    // Create initial session via print mode so the JSONL exists
+    const createOut = await runPrintSession([], PROMPT);
+    const files = fs
+      .readdirSync(PROJECTS_ROOT)
+      .filter((f) => f.endsWith('.jsonl'))
+      .map((f) => ({ f, mtime: fs.statSync(path.join(PROJECTS_ROOT, f)).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime);
+    expect(files.length).toBeGreaterThan(0);
+    const sessionId = files[0].f.replace(/\.jsonl$/, '');
+    const jsonlPath = path.join(PROJECTS_ROOT, `${sessionId}.jsonl`);
+    console.log(`[print no-flag] Session: ${sessionId} (create output bytes: ${createOut.length})`);
+
+    const offset1 = fs.statSync(jsonlPath).size;
+    await runPrintSession(['--resume', sessionId], PROMPT);
+    const warm1 = readUsageAfter(jsonlPath, offset1);
+    expect(warm1).not.toBeNull();
+    console.log(`[print no-flag] Warm 1: reads=${warm1!.reads} writes=${warm1!.writes}`);
+
+    const offset2 = fs.statSync(jsonlPath).size;
+    await runPrintSession(['--resume', sessionId], PROMPT);
+    const warm2 = readUsageAfter(jsonlPath, offset2);
+    expect(warm2).not.toBeNull();
+
+    const total = warm2!.reads + warm2!.writes;
+    const hitRate = total > 0 ? warm2!.reads / total : 0;
+    console.log(`[print no-flag] Warm 2: reads=${warm2!.reads} writes=${warm2!.writes} hit=${(hitRate * 100).toFixed(1)}%`);
+
+    expect(hitRate).toBeGreaterThanOrEqual(EXPECTED_CACHE_HIT_RATE);
+  }, 300_000);
+
+  it('cross-mode: create PTY, resume via print (no flag)', async () => {
+    // Create session via PTY (interactive CLI identity)
+    const createOutput = await runSession([], PROMPT);
+    // eslint-disable-next-line no-control-regex
+    const stripped = createOutput.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
+    const match = stripped.match(/claude --resume ([a-f0-9-]{36})/);
+    expect(match).not.toBeNull();
+    const sessionId = match![1];
+    const jsonlPath = path.join(PROJECTS_ROOT, `${sessionId}.jsonl`);
+    console.log(`[cross pty->print no-flag] Session: ${sessionId}`);
+
+    // Warm 1: resume via print mode (crosses cli -> sdk-cli identity)
+    const offset1 = fs.statSync(jsonlPath).size;
+    await runPrintSession(['--resume', sessionId], PROMPT);
+    const warm1 = readUsageAfter(jsonlPath, offset1);
+    expect(warm1).not.toBeNull();
+    const hit1 = (warm1!.reads + warm1!.writes) > 0 ? warm1!.reads / (warm1!.reads + warm1!.writes) : 0;
+    console.log(`[cross pty->print no-flag] Warm 1 (print): reads=${warm1!.reads} writes=${warm1!.writes} hit=${(hit1 * 100).toFixed(1)}%`);
+
+    // Warm 2: another print-mode resume (same identity as warm 1, should cache-hit)
+    const offset2 = fs.statSync(jsonlPath).size;
+    await runPrintSession(['--resume', sessionId], PROMPT);
+    const warm2 = readUsageAfter(jsonlPath, offset2);
+    expect(warm2).not.toBeNull();
+    const hit2 = (warm2!.reads + warm2!.writes) > 0 ? warm2!.reads / (warm2!.reads + warm2!.writes) : 0;
+    console.log(`[cross pty->print no-flag] Warm 2 (print): reads=${warm2!.reads} writes=${warm2!.writes} hit=${(hit2 * 100).toFixed(1)}%`);
+  }, 300_000);
+
+  it('cross-mode: create PTY, resume via print (--exclude-dynamic-system-prompt-sections)', async () => {
+    const FLAG = '--exclude-dynamic-system-prompt-sections';
+    const createOutput = await runSession([FLAG], PROMPT);
+    // eslint-disable-next-line no-control-regex
+    const stripped = createOutput.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
+    const match = stripped.match(/claude --resume ([a-f0-9-]{36})/);
+    expect(match).not.toBeNull();
+    const sessionId = match![1];
+    const jsonlPath = path.join(PROJECTS_ROOT, `${sessionId}.jsonl`);
+    console.log(`[cross pty->print flag] Session: ${sessionId}`);
+
+    const offset1 = fs.statSync(jsonlPath).size;
+    await runPrintSession(['--resume', sessionId, FLAG], PROMPT);
+    const warm1 = readUsageAfter(jsonlPath, offset1);
+    expect(warm1).not.toBeNull();
+    const hit1 = (warm1!.reads + warm1!.writes) > 0 ? warm1!.reads / (warm1!.reads + warm1!.writes) : 0;
+    console.log(`[cross pty->print flag] Warm 1 (print): reads=${warm1!.reads} writes=${warm1!.writes} hit=${(hit1 * 100).toFixed(1)}%`);
+
+    const offset2 = fs.statSync(jsonlPath).size;
+    await runPrintSession(['--resume', sessionId, FLAG], PROMPT);
+    const warm2 = readUsageAfter(jsonlPath, offset2);
+    expect(warm2).not.toBeNull();
+    const hit2 = (warm2!.reads + warm2!.writes) > 0 ? warm2!.reads / (warm2!.reads + warm2!.writes) : 0;
+    console.log(`[cross pty->print flag] Warm 2 (print): reads=${warm2!.reads} writes=${warm2!.writes} hit=${(hit2 * 100).toFixed(1)}%`);
+  }, 300_000);
+
+  it('cross-mode: create print (flag), resume via PTY', async () => {
+    const FLAG = '--exclude-dynamic-system-prompt-sections';
+    // Create session via print mode with the flag
+    const createOut = await runPrintSession([FLAG], PROMPT);
+    const files = fs
+      .readdirSync(PROJECTS_ROOT)
+      .filter((f) => f.endsWith('.jsonl'))
+      .map((f) => ({ f, mtime: fs.statSync(path.join(PROJECTS_ROOT, f)).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime);
+    expect(files.length).toBeGreaterThan(0);
+    const sessionId = files[0].f.replace(/\.jsonl$/, '');
+    const jsonlPath = path.join(PROJECTS_ROOT, `${sessionId}.jsonl`);
+    console.log(`[cross print(flag)->pty] Session: ${sessionId} (create output bytes: ${createOut.length})`);
+
+    // Warm 1: resume via PTY (crosses sdk-cli -> cli identity)
+    const offset1 = fs.statSync(jsonlPath).size;
+    await runSession(['--resume', sessionId], PROMPT);
+    const warm1 = readUsageAfter(jsonlPath, offset1);
+    expect(warm1).not.toBeNull();
+    const hit1 = (warm1!.reads + warm1!.writes) > 0 ? warm1!.reads / (warm1!.reads + warm1!.writes) : 0;
+    console.log(`[cross print(flag)->pty] Warm 1 (pty): reads=${warm1!.reads} writes=${warm1!.writes} hit=${(hit1 * 100).toFixed(1)}%`);
+
+    // Warm 2: another PTY resume (same identity as warm 1, should cache-hit if PTY→PTY works)
+    const offset2 = fs.statSync(jsonlPath).size;
+    await runSession(['--resume', sessionId], PROMPT);
+    const warm2 = readUsageAfter(jsonlPath, offset2);
+    expect(warm2).not.toBeNull();
+    const hit2 = (warm2!.reads + warm2!.writes) > 0 ? warm2!.reads / (warm2!.reads + warm2!.writes) : 0;
+    console.log(`[cross print(flag)->pty] Warm 2 (pty): reads=${warm2!.reads} writes=${warm2!.writes} hit=${(hit2 * 100).toFixed(1)}%`);
+  }, 300_000);
+
+  it('consecutive print-mode resumes share prefix cache (--exclude-dynamic-system-prompt-sections)', async () => {
+    const FLAG = '--exclude-dynamic-system-prompt-sections';
+    // Create initial session via print mode so the JSONL exists
+    const createOut = await runPrintSession([FLAG], PROMPT);
+    // Print mode doesn't echo the resume hint. Find the newest JSONL for this project.
+    const files = fs
+      .readdirSync(PROJECTS_ROOT)
+      .filter((f) => f.endsWith('.jsonl'))
+      .map((f) => ({ f, mtime: fs.statSync(path.join(PROJECTS_ROOT, f)).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime);
+    expect(files.length).toBeGreaterThan(0);
+    const sessionId = files[0].f.replace(/\.jsonl$/, '');
+    const jsonlPath = path.join(PROJECTS_ROOT, `${sessionId}.jsonl`);
+    console.log(`[print flag] Session: ${sessionId} (create output bytes: ${createOut.length})`);
+
+    const offset1 = fs.statSync(jsonlPath).size;
+    await runPrintSession(['--resume', sessionId, FLAG], PROMPT);
+    const warm1 = readUsageAfter(jsonlPath, offset1);
+    expect(warm1).not.toBeNull();
+    console.log(`[print flag] Warm 1: reads=${warm1!.reads} writes=${warm1!.writes}`);
+
+    const offset2 = fs.statSync(jsonlPath).size;
+    await runPrintSession(['--resume', sessionId, FLAG], PROMPT);
+    const warm2 = readUsageAfter(jsonlPath, offset2);
+    expect(warm2).not.toBeNull();
+
+    const total = warm2!.reads + warm2!.writes;
+    const hitRate = total > 0 ? warm2!.reads / total : 0;
+    console.log(`[print flag] Warm 2: reads=${warm2!.reads} writes=${warm2!.writes} hit=${(hitRate * 100).toFixed(1)}%`);
 
     expect(hitRate).toBeGreaterThanOrEqual(EXPECTED_CACHE_HIT_RATE);
   }, 300_000);
