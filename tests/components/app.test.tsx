@@ -378,6 +378,29 @@ describe('App', () => {
     expect(lastFrame()!).toBeDefined();
   });
 
+  it('does not crash when navigating down on an empty sessions list', async () => {
+    mockSessions.discoverSessions.mockReturnValue([]);
+
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    await tick();
+
+    stdin.write('\x1B[B');
+    stdin.write(' ');
+    await tick();
+    expect(lastFrame()!).toBeDefined();
+  });
+
+  it('does not crash when navigating up on an empty sessions list', async () => {
+    mockSessions.discoverSessions.mockReturnValue([]);
+
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    await tick();
+
+    stdin.write('\x1B[A');
+    await tick();
+    expect(lastFrame()!).toBeDefined();
+  });
+
   it('tick guard prevents concurrent tick execution', async () => {
     vi.useFakeTimers();
     const { stdin, unmount } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
@@ -425,6 +448,48 @@ describe('App', () => {
 
     const frame = lastFrame()!;
     expect(frame).toContain('New Session');
+
+    unmount();
+    vi.useRealTimers();
+  });
+
+  it('clamps the highlighted row when refresh removes sessions', async () => {
+    vi.useFakeTimers();
+    mockSessions.discoverSessions.mockReturnValueOnce(makeTwoSessions()).mockReturnValue([]);
+
+    const { stdin, lastFrame, unmount } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    await vi.advanceTimersByTimeAsync(50);
+
+    stdin.write('\x1B[B');
+    await vi.advanceTimersByTimeAsync(50);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(50);
+
+    stdin.write(' ');
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(lastFrame()!).toBeDefined();
+
+    unmount();
+    vi.useRealTimers();
+  });
+
+  it('guards against a stale highlighted index during refresh', async () => {
+    vi.useFakeTimers();
+    mockSessions.discoverSessions.mockReturnValueOnce(makeTwoSessions()).mockReturnValue([defaultSession()]);
+
+    const { stdin, lastFrame, unmount } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    await vi.advanceTimersByTimeAsync(50);
+
+    stdin.write('\x1B[B');
+    await vi.advanceTimersByTimeAsync(50);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    stdin.write(' ');
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(lastFrame()!).toBeDefined();
 
     unmount();
     vi.useRealTimers();
@@ -614,6 +679,64 @@ describe('App', () => {
     }
     await tick();
     expect(lastFrame()!).toBeDefined();
+  });
+
+  it('reclamps scroll when the terminal height shrinks', async () => {
+    const manySessions = Array.from({ length: 5 }, (_, i) => ({
+      ...defaultSession(),
+      sessionId: `session-${String(i).padStart(3, '0')}`,
+      name: `Session ${i}`,
+    }));
+    mockSessions.discoverSessions.mockReturnValue(manySessions);
+
+    const instance = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    await tick();
+
+    for (let i = 0; i < 4; i++) {
+      instance.stdin.write('\x1B[B');
+    }
+    await tick();
+
+    Object.defineProperty(instance.stdout, 'rows', {
+      configurable: true,
+      get: () => 8,
+    });
+    instance.rerender(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    await tick();
+
+    expect(instance.lastFrame()!).toContain('Session 4');
+  });
+
+  it('reclamps scroll when refresh removes rows above the current offset', async () => {
+    vi.useFakeTimers();
+    const manySessions = Array.from({ length: 5 }, (_, i) => ({
+      ...defaultSession(),
+      sessionId: `session-${String(i).padStart(3, '0')}`,
+      name: `Session ${i}`,
+    }));
+    mockSessions.discoverSessions.mockReturnValueOnce(manySessions).mockReturnValue(manySessions.slice(0, 3));
+
+    const instance = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    Object.defineProperty(instance.stdout, 'rows', {
+      configurable: true,
+      get: () => 8,
+    });
+    instance.rerender(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    await vi.advanceTimersByTimeAsync(50);
+
+    for (let i = 0; i < 4; i++) {
+      instance.stdin.write('\x1B[B');
+    }
+    await vi.advanceTimersByTimeAsync(50);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(instance.lastFrame()!).toContain('Session 2');
+
+    instance.unmount();
+    instance.cleanup();
+    vi.useRealTimers();
   });
 
   it('interval change while warming reschedules sessions', async () => {

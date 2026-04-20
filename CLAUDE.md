@@ -19,7 +19,7 @@ TUI tool that keeps Claude Code session caches warm by periodically resuming ses
 
 - `npm run dev` - Run via tsx
 - `npm test` - Unit tests (vitest, 100% coverage required)
-- `npm run test:e2e` - E2E cache hit test (slow, hits real API, currently expected to fail)
+- `npm run test:e2e` - E2E cache benchmark suite (slow, hits real API)
 - `npm run build` - Bundle with tsup
 
 ## Key design decisions
@@ -29,12 +29,9 @@ TUI tool that keeps Claude Code session caches warm by periodically resuming ses
 - **Settle-based readiness detection**: The warmer waits for PTY output to stop flowing for 3s before sending the prompt, and again before sending `/exit`. This handles variable REPL startup times.
 - **Session refresh preserves warmer state**: The 30s refresh re-reads JSONL files for fresh data (tokens, warm/cold, name) but preserves warmer-owned state (selected, warmCount, nextWarmAt, etc.).
 
-## Known limitation: cross-process cache invalidation
+## Known limitation
 
-Consecutive `claude --resume` calls from different processes get ~53% cache hit rate instead of >90%. Root cause: the Agent tool description in the API request lists plugin-provided agent types in non-deterministic order (depends on async plugin loading). This breaks prefix cache for all conversation messages downstream.
-
-- A fix (sorting agent types before including them in the prompt) exists behind a feature flag in Claude Code. Once enabled, cross-process cache hits should reach >90%.
-- The E2E test (`tests/e2e/warm-cache-hits.test.ts`) asserts >90% hit rate and is expected to fail until this is fixed in Claude Code.
+Cross-process cache hit rates have varied across Claude Code versions as prompt and tool definitions change. If an exact benchmark matters, rerun `npm run test:e2e` against the current Claude Code build instead of relying on an older percentage in docs.
 
 ## Testing
 

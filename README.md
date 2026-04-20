@@ -8,6 +8,14 @@ Without warming, resuming a session after the cache expires can trigger a full c
 
 Not affiliated with or endorsed by Anthropic.
 
+## Requirements
+
+- Node.js 18 or newer
+- Claude Code installed and authenticated so `claude` is available on your `PATH`
+- At least one resumable Claude Code session already present in `~/.claude/projects/`
+
+`claude-warmer` currently reads the default Claude Code state directories under `~/.claude`. If you have no local sessions yet, the TUI will open but there will be nothing to warm.
+
 ## Install
 
 ```bash
@@ -24,6 +32,11 @@ claude-warmer
 Options:
 - `-i, --interval <minutes>` - Warming interval (default: 55, just under the 1 hour cache TTL)
 - `--prompt <string>` - Prompt to send (default: `"Reply 'ok'"`)
+
+## Notes
+
+- Tested primarily against the default local Claude Code setup on macOS
+- The `c` key copies the highlighted session ID with the system clipboard when available
 
 ## How it works
 

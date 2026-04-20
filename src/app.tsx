@@ -20,6 +20,16 @@ type EditingField = 'prompt' | 'interval' | null;
 
 const REFRESH_INTERVAL_SEC = 30;
 
+function clampIndex(index: number, length: number): number {
+  if (length <= 0) return 0;
+  return Math.min(Math.max(index, 0), length - 1);
+}
+
+function clampScrollOffset(offset: number, length: number, visibleRows: number): number {
+  const maxOffset = Math.max(0, length - visibleRows);
+  return Math.min(Math.max(offset, 0), maxOffset);
+}
+
 export function App({ intervalMinutes: initialInterval, warmPrompt: initialPrompt }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -67,11 +77,32 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    setHighlightedIndex((prev) => clampIndex(prev, sessions.length));
+  }, [sessions.length]);
+
+  useEffect(() => {
+    setScrollOffset((prev) => {
+      const nextIndex = clampIndex(highlightedIndex, sessions.length);
+      const nextOffset = clampScrollOffset(prev, sessions.length, visibleRows);
+
+      if (sessions.length === 0) return 0;
+      /* v8 ignore next */
+      if (nextIndex < nextOffset) return nextIndex;
+      if (nextIndex >= nextOffset + visibleRows) {
+        return Math.max(0, nextIndex - visibleRows + 1);
+      }
+      return nextOffset;
+    });
+  }, [highlightedIndex, sessions.length, visibleRows]);
+
   const toggleSelection = useCallback(
     (index: number) => {
       setSessions((prev) => {
         const updated = [...prev];
         const session = updated[index];
+        /* v8 ignore next */
+        if (!session) return prev;
         const newSelected = !session.selected;
         updated[index] = { ...session, selected: newSelected };
 
@@ -215,6 +246,7 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
       }
 
       if (key.upArrow) {
+        if (sessions.length === 0) return;
         setHighlightedIndex((prev) => {
           const next = Math.max(0, prev - 1);
           setScrollOffset((offset) => {
@@ -227,6 +259,7 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
       }
 
       if (key.downArrow) {
+        if (sessions.length === 0) return;
         setHighlightedIndex((prev) => {
           const next = Math.min(sessions.length - 1, prev + 1);
           setScrollOffset((offset) => {

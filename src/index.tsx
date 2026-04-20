@@ -15,9 +15,9 @@ const { values } = parseArgs({
 
 if (values.help) {
   console.log(`
-Claude Cache Warmer - Keep Claude Code session caches alive
+Claude Warmer - Keep Claude Code session caches alive
 
-Usage: claude-cache-warmer [options]
+Usage: claude-warmer [options]
 
 Options:
   -i, --interval <minutes>  Warming interval in minutes (default: 55)

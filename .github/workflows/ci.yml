@@ -19,3 +19,5 @@ jobs:
       - run: npm run lint
       - run: npm run format:check
       - run: npm run test:coverage
+      - run: npm run build
+      - run: npm pack --dry-run
