@@ -22,11 +22,7 @@ beforeEach(() => {
  * typed, explicit filesystem state can supply one of these instead of
  * configuring `vi.mocked(fs)` per call.
  */
-function memoryFs(state: {
-  dirs: string[];
-  files: Record<string, string>;
-  entries: Record<string, string[]>;
-}): Fs {
+function memoryFs(state: { dirs: string[]; files: Record<string, string>; entries: Record<string, string[]> }): Fs {
   const exists = (p: string) => state.dirs.includes(p) || p in state.files;
   return {
     existsSync: ((p: fs.PathLike) => exists(p.toString())) as Fs['existsSync'],
@@ -257,13 +253,13 @@ describe('findProjectCwd (filesystem-aware decoder)', () => {
   }
 
   it('recovers a path with no hyphen ambiguity', () => {
-    const fs = memFs(['/Users', '/Users/ryan', '/Users/ryan/dev']);
-    expect(findProjectCwd(fs, '-Users-ryan-dev')).toBe('/Users/ryan/dev');
+    const fs = memFs(['/Users', '/Users/test', '/Users/test/dev']);
+    expect(findProjectCwd(fs, '-Users-test-dev')).toBe('/Users/test/dev');
   });
 
   it('recovers a path containing a hyphen in the last segment (the claude-warmer case)', () => {
-    const fs = memFs(['/Users', '/Users/ryan', '/Users/ryan/dev', '/Users/ryan/dev/claude-warmer']);
-    expect(findProjectCwd(fs, '-Users-ryan-dev-claude-warmer')).toBe('/Users/ryan/dev/claude-warmer');
+    const fs = memFs(['/Users', '/Users/test', '/Users/test/dev', '/Users/test/dev/claude-warmer']);
+    expect(findProjectCwd(fs, '-Users-test-dev-claude-warmer')).toBe('/Users/test/dev/claude-warmer');
   });
 
   it('prefers the / split when both /a/b and /a-b exist (greedy left-to-right)', () => {
@@ -277,8 +273,8 @@ describe('findProjectCwd (filesystem-aware decoder)', () => {
   });
 
   it('returns null when no traversal reaches the end', () => {
-    const fs = memFs(['/Users', '/Users/ryan']);
-    expect(findProjectCwd(fs, '-Users-ryan-doesnotexist')).toBeNull();
+    const fs = memFs(['/Users', '/Users/test']);
+    expect(findProjectCwd(fs, '-Users-test-doesnotexist')).toBeNull();
   });
 
   it('returns null on a malformed (no leading hyphen) input', () => {
@@ -416,9 +412,9 @@ describe('discoverSessions', () => {
     mockFs.readdirSync.mockImplementation((dirPath: fs.PathLike) => {
       const p = dirPath.toString();
       if (p.endsWith('/projects')) {
-        return ['-Users-ryan-dev'] as unknown as fs.Dirent[];
+        return ['-Users-test-dev'] as unknown as fs.Dirent[];
       }
-      if (p.includes('-Users-ryan-dev')) {
+      if (p.includes('-Users-test-dev')) {
         return ['abc-123.jsonl'] as unknown as fs.Dirent[];
       }
       if (p.endsWith('/sessions')) {
@@ -454,7 +450,7 @@ describe('discoverSessions', () => {
 
     const sessions = discoverSessions();
     expect(sessions).toHaveLength(1);
-    expect(sessions[0].cwd).toBe('/Users/ryan/dev');
+    expect(sessions[0].cwd).toBe('/Users/test/dev');
   });
 
   it('when pidInfo is missing and decoded path does not stat(), cwd is empty', () => {
@@ -494,8 +490,8 @@ describe('discoverSessions', () => {
     mockFs.existsSync.mockReturnValue(true);
     mockFs.readdirSync.mockImplementation((dirPath: fs.PathLike) => {
       const p = dirPath.toString();
-      if (p.endsWith('/projects')) return ['-Users-ryan-dev-claude-warmer'] as unknown as fs.Dirent[];
-      if (p.includes('-Users-ryan-dev-claude-warmer')) return ['abc.jsonl'] as unknown as fs.Dirent[];
+      if (p.endsWith('/projects')) return ['-Users-test-dev-claude-warmer'] as unknown as fs.Dirent[];
+      if (p.includes('-Users-test-dev-claude-warmer')) return ['abc.jsonl'] as unknown as fs.Dirent[];
       if (p.endsWith('/sessions')) return ['999.json'] as unknown as fs.Dirent[];
       return [] as unknown as fs.Dirent[];
     });
@@ -516,7 +512,7 @@ describe('discoverSessions', () => {
         return JSON.stringify({
           pid: 999,
           sessionId: 'some-other-session',
-          cwd: '/Users/ryan/dev/claude-warmer',
+          cwd: '/Users/test/dev/claude-warmer',
           startedAt: Date.now(),
           kind: 'interactive',
         });
@@ -531,8 +527,8 @@ describe('discoverSessions', () => {
     expect(sessions).toHaveLength(1);
     // Authoritative cwd from sibling PID file — preserves the `-` in
     // `claude-warmer`, unlike the naive decode which would produce
-    // `/Users/ryan/dev/claude/warmer`.
-    expect(sessions[0].cwd).toBe('/Users/ryan/dev/claude-warmer');
+    // `/Users/test/dev/claude/warmer`.
+    expect(sessions[0].cwd).toBe('/Users/test/dev/claude-warmer');
   });
 
   it('handles corrupt PID JSON files gracefully', () => {

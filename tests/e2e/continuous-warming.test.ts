@@ -48,7 +48,14 @@ vi.mock('node:child_process', async () => {
   return { ...actual, execSync: () => Buffer.from('') };
 });
 vi.mock('@inkjs/ui', () => ({
-  TextInput: ({ defaultValue, onSubmit }: { defaultValue?: string; onSubmit?: (v: string) => void; children?: ReactNode }) =>
+  TextInput: ({
+    defaultValue,
+    onSubmit,
+  }: {
+    defaultValue?: string;
+    onSubmit?: (v: string) => void;
+    children?: ReactNode;
+  }) =>
     // ink-testing-library doesn't drive @inkjs/ui's TextInput, so we render a
     // plain marker and expose onSubmit through a global stash that the test
     // can call directly when it edits the prompt.
@@ -101,7 +108,10 @@ function jsonlSize(sessionId: string): number {
 
 function listProjectSessionIds(): string[] {
   if (!fs.existsSync(PROJECTS_ROOT)) return [];
-  return fs.readdirSync(PROJECTS_ROOT).filter((f) => f.endsWith('.jsonl')).map((f) => f.replace(/\.jsonl$/, ''));
+  return fs
+    .readdirSync(PROJECTS_ROOT)
+    .filter((f) => f.endsWith('.jsonl'))
+    .map((f) => f.replace(/\.jsonl$/, ''));
 }
 
 function stripAnsi(text: string): string {
@@ -269,8 +279,7 @@ describe('e2e: continuous warming of selected session under TUI mutations', () =
       for (const cp of checkpoints) {
         const delta = cp.jsonlSize - prev;
         console.log(
-          `  [t+${(cp.atMs / 1000).toFixed(1)}s] ${cp.label.padEnd(36)} ` +
-            `size=${cp.jsonlSize}B  delta=+${delta}B`,
+          `  [t+${(cp.atMs / 1000).toFixed(1)}s] ${cp.label.padEnd(36)} ` + `size=${cp.jsonlSize}B  delta=+${delta}B`,
         );
         prev = cp.jsonlSize;
       }

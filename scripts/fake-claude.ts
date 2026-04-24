@@ -52,7 +52,7 @@ function parseArgs(argv: string[]): Args {
 }
 
 function deriveProjectDirFromCwd(cwd: string): string {
-  // Claude Code's convention: `/Users/ryan/dev` -> `-Users-ryan-dev`
+  // Claude Code's convention: `/Users/test/dev` -> `-Users-test-dev`
   return cwd.replace(/\//g, '-');
 }
 

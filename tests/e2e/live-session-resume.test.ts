@@ -221,9 +221,7 @@ describe('e2e: real claude --resume against a live session (H5 verification)', (
       console.log('[H5] Phase 2: spawn a second claude --resume that holds the session');
       const liveHolder = await spawnAndWaitForReady(['--resume', sessionId]);
       const holderPidEntries = listPidFilesForSession(sessionId);
-      console.log(
-        `[H5] Holder PID(s) registered for session: ${JSON.stringify(holderPidEntries)}`,
-      );
+      console.log(`[H5] Holder PID(s) registered for session: ${JSON.stringify(holderPidEntries)}`);
 
       try {
         console.log('[H5] Phase 3: run warmSession 3x at 5s intervals while holder is alive');
@@ -268,8 +266,12 @@ describe('e2e: real claude --resume against a live session (H5 verification)', (
         console.log(`  seed JSONL size before   : ${seedJsonlSize}`);
         console.log(`  seed JSONL size after 3  : ${finalSize}  (delta=${sizeDelta}B)`);
         console.log(`  warm errors per cycle    : ${JSON.stringify(allErrors)}`);
-        console.log(`  cumulative cache reads   : ${observations.reduce((a, b) => a + b.warmResult.cacheReadInputTokens, 0)}`);
-        console.log(`  cumulative cache writes  : ${observations.reduce((a, b) => a + b.warmResult.cacheCreationInputTokens, 0)}`);
+        console.log(
+          `  cumulative cache reads   : ${observations.reduce((a, b) => a + b.warmResult.cacheReadInputTokens, 0)}`,
+        );
+        console.log(
+          `  cumulative cache writes  : ${observations.reduce((a, b) => a + b.warmResult.cacheCreationInputTokens, 0)}`,
+        );
         console.log(`  new session IDs created  : ${JSON.stringify(totalNewSessions)}`);
         console.log(`  holder PID still alive   : ${observations[observations.length - 1].livePidStillAlive}`);
 

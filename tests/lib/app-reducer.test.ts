@@ -121,10 +121,7 @@ describe('mergeRefresh', () => {
 
 describe('mergeTickResults', () => {
   it('updates sessions by id with the tick version', () => {
-    const latest = [
-      session({ sessionId: 's1', warmCount: 0 }),
-      session({ sessionId: 's2', warmCount: 0 }),
-    ];
+    const latest = [session({ sessionId: 's1', warmCount: 0 }), session({ sessionId: 's2', warmCount: 0 })];
     const updated = [session({ sessionId: 's1', warmCount: 5, lastWarmedAt: 12345 })];
     const merged = mergeTickResults(latest, updated);
     expect(merged.map((s) => s.sessionId)).toEqual(['s1', 's2']);
@@ -143,19 +140,13 @@ describe('mergeTickResults', () => {
 
   it('drops sessions present only in updated (user removed them mid-tick)', () => {
     const latest = [session({ sessionId: 's1' })];
-    const updated = [
-      session({ sessionId: 's1', warmCount: 1 }),
-      session({ sessionId: 's-gone', warmCount: 9 }),
-    ];
+    const updated = [session({ sessionId: 's1', warmCount: 1 }), session({ sessionId: 's-gone', warmCount: 9 })];
     const merged = mergeTickResults(latest, updated);
     expect(merged.map((s) => s.sessionId)).toEqual(['s1']);
   });
 
   it('returns the same array reference when every entry shallow-equals (no-op short-circuit)', () => {
-    const latest = [
-      session({ sessionId: 's1', warmCount: 2 }),
-      session({ sessionId: 's2', warmCount: 0 }),
-    ];
+    const latest = [session({ sessionId: 's1', warmCount: 2 }), session({ sessionId: 's2', warmCount: 0 })];
     const updated = [session({ sessionId: 's1', warmCount: 2 })];
     expect(mergeTickResults(latest, updated)).toBe(latest);
   });

@@ -22,9 +22,7 @@ export interface FakeJsonlSpec {
 export function buildJsonl(spec: FakeJsonlSpec): string {
   const lines: string[] = [];
   if (spec.customTitle) {
-    lines.push(
-      JSON.stringify({ type: 'custom-title', customTitle: spec.customTitle, sessionId: spec.sessionId }),
-    );
+    lines.push(JSON.stringify({ type: 'custom-title', customTitle: spec.customTitle, sessionId: spec.sessionId }));
   }
   lines.push(
     JSON.stringify({
@@ -179,4 +177,3 @@ export function makeFakeWarmer(opts: FakeWarmerOptions): WarmFn {
     };
   };
 }
-

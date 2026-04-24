@@ -4,12 +4,12 @@ import { render } from 'ink-testing-library';
 import { App } from '../../src/app.js';
 import * as sessionsModule from '../../src/lib/sessions.js';
 import * as warmerModule from '../../src/lib/warmer.js';
-import * as childProcess from 'node:child_process';
+import * as clipboardModule from '../../src/lib/clipboard.js';
 
 vi.mock('../../src/lib/sessions.js');
 vi.mock('../../src/lib/warmer.js');
-vi.mock('node:child_process', () => ({
-  execSync: vi.fn(),
+vi.mock('../../src/lib/clipboard.js', () => ({
+  copyToClipboard: vi.fn(),
 }));
 
 let capturedOnSubmit: ((value: string) => void) | null = null;
@@ -575,30 +575,15 @@ describe('App', () => {
   });
 
   it('copies session ID to clipboard on c key', async () => {
-    const mockExecSync = vi.mocked(childProcess.execSync);
-    mockExecSync.mockReturnValue(Buffer.from(''));
+    const mockCopy = vi.mocked(clipboardModule.copyToClipboard);
+    mockCopy.mockReset();
 
     const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     await tick();
 
     stdin.write('c');
     await tick();
-    expect(mockExecSync).toHaveBeenCalledWith('pbcopy', expect.objectContaining({ input: 'abc-123' }));
-    expect(lastFrame()!).toBeDefined();
-  });
-
-  it('c key handles clipboard error gracefully', async () => {
-    const mockExecSync = vi.mocked(childProcess.execSync);
-    mockExecSync.mockImplementation(() => {
-      throw new Error('pbcopy not found');
-    });
-
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
-    await tick();
-
-    stdin.write('c');
-    await tick();
-    // Should not crash even if pbcopy fails
+    expect(mockCopy).toHaveBeenCalledWith('abc-123');
     expect(lastFrame()!).toBeDefined();
   });
 

@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { Box, Text, useInput, useApp, useStdout } from 'ink';
 import { TextInput } from '@inkjs/ui';
-import { execSync } from 'node:child_process';
 import type { Session, WarmFn } from './lib/types.js';
 import { discoverSessions } from './lib/sessions.js';
 import { makeWarmer, warmSession } from './lib/warmer.js';
 import { Scheduler } from './lib/scheduler.js';
+import { copyToClipboard } from './lib/clipboard.js';
 import { computeLayout } from './lib/layout.js';
 import { appReducer, initialState, type AppSessionState } from './lib/app-reducer.js';
 import { realClock, realFs, type Clock, type Fs, type Random } from './lib/deps.js';
@@ -85,7 +85,7 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
 
   // Lazy-init: useRef's initial-value arg is evaluated every render. We only
   // want one Scheduler per mount, hence the construct-on-first-read pattern.
-  const schedulerRef = useRef<Scheduler>(undefined as unknown as Scheduler);
+  const schedulerRef = useRef<Scheduler>(null!);
   if (!schedulerRef.current) {
     schedulerRef.current = new Scheduler(warmFn, initialInterval, random, clock);
   }
@@ -132,21 +132,18 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
     });
   }, [highlightedIndex, sessions.length, visibleRows]);
 
-  const toggleSelection = useCallback(
-    (index: number) => {
-      const current = stateRef.current;
-      const session = current.sessions[index];
-      /* v8 ignore next */
-      if (!session) return;
-      const newSelected = !session.selected;
-      let next: Session = { ...session, selected: newSelected };
-      if (current.warming) {
-        next = newSelected ? schedulerRef.current.addSession(next) : schedulerRef.current.removeSession(next);
-      }
-      dispatch({ type: 'REPLACE_SESSION', sessionId: session.sessionId, next });
-    },
-    [],
-  );
+  const toggleSelection = useCallback((index: number) => {
+    const current = stateRef.current;
+    const session = current.sessions[index];
+    /* v8 ignore next */
+    if (!session) return;
+    const newSelected = !session.selected;
+    let next: Session = { ...session, selected: newSelected };
+    if (current.warming) {
+      next = newSelected ? schedulerRef.current.addSession(next) : schedulerRef.current.removeSession(next);
+    }
+    dispatch({ type: 'REPLACE_SESSION', sessionId: session.sessionId, next });
+  }, []);
 
   const selectActive = useCallback(() => {
     const current = stateRef.current;
@@ -187,11 +184,7 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
     const session = current.sessions[highlightedIndex];
     /* v8 ignore next */
     if (!session) return;
-    try {
-      execSync('pbcopy', { input: session.sessionId });
-    } catch {
-      // silently ignore clipboard errors
-    }
+    copyToClipboard(session.sessionId);
   }, [highlightedIndex]);
 
   useEffect(() => {

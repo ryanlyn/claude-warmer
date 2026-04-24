@@ -193,7 +193,7 @@ describe('SessionRow', () => {
     const wide = computeLayout(100);
     const { lastFrame } = render(
       <SessionRow
-        session={makeSession({ cwd: '/Users/ryan/dev/my-project' })}
+        session={makeSession({ cwd: '/Users/test/dev/my-project' })}
         highlighted={false}
         layout={wide}
         warmingActive={false}
@@ -206,7 +206,7 @@ describe('SessionRow', () => {
     const wide = computeLayout(100);
     const { lastFrame } = render(
       <SessionRow
-        session={makeSession({ cwd: '/Users/ryan/dev/project/' })}
+        session={makeSession({ cwd: '/Users/test/dev/project/' })}
         highlighted={false}
         layout={wide}
         warmingActive={false}
@@ -227,7 +227,7 @@ describe('SessionRow', () => {
     const wide = computeLayout(100);
     const { lastFrame } = render(
       <SessionRow
-        session={makeSession({ cwd: '/Users/ryan/dev/very-long-directory-name-here' })}
+        session={makeSession({ cwd: '/Users/test/dev/very-long-directory-name-here' })}
         highlighted={false}
         layout={wide}
         warmingActive={false}

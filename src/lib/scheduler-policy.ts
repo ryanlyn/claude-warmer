@@ -15,12 +15,7 @@ import { WARM_THRESHOLD_MS, SAFETY_MARGIN_MS, BACKOFF_SCHEDULE_MS } from './type
 // already-warm session — without it the first warm could fire up to 55min
 // later, regardless of what `--interval` says, because the cache TTL window
 // dominates.
-export function nextFirstWarm(
-  session: Session,
-  now: number,
-  rng: () => number,
-  intervalMs: number,
-): number {
+export function nextFirstWarm(session: Session, now: number, rng: () => number, intervalMs: number): number {
   const anchor = session.lastWarmedAt ?? session.lastAssistantTimestamp;
   const windowEnd = anchor + WARM_THRESHOLD_MS;
 
