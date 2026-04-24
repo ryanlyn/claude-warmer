@@ -5,6 +5,7 @@ import {
   getJsonlPath,
   getClaudePath,
   resetClaudePath,
+  makeWarmer,
 } from '../../src/lib/warmer.js';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -40,8 +41,21 @@ describe('getJsonlPath', () => {
 });
 
 describe('getClaudePath', () => {
+  let originalClaudePath: string | undefined;
+
   beforeEach(() => {
+    vi.resetAllMocks();
     resetClaudePath();
+    originalClaudePath = process.env.CLAUDE_PATH;
+    delete process.env.CLAUDE_PATH;
+  });
+
+  afterEach(() => {
+    if (originalClaudePath === undefined) {
+      delete process.env.CLAUDE_PATH;
+    } else {
+      process.env.CLAUDE_PATH = originalClaudePath;
+    }
   });
 
   it('returns cached path on subsequent calls', () => {
@@ -59,6 +73,21 @@ describe('getClaudePath', () => {
     });
     const result = getClaudePath();
     expect(result).toBe('claude');
+  });
+
+  it('uses CLAUDE_PATH env var when set, skipping which', () => {
+    process.env.CLAUDE_PATH = '/tmp/fake-claude';
+    const result = getClaudePath();
+    expect(result).toBe('/tmp/fake-claude');
+    expect(mockCp.execFileSync).not.toHaveBeenCalled();
+  });
+
+  it('ignores empty CLAUDE_PATH and falls through to which', () => {
+    process.env.CLAUDE_PATH = '';
+    mockCp.execFileSync.mockReturnValue('/usr/local/bin/claude\n' as never);
+    const result = getClaudePath();
+    expect(result).toBe('/usr/local/bin/claude');
+    expect(mockCp.execFileSync).toHaveBeenCalled();
   });
 });
 
@@ -388,6 +417,12 @@ describe('warmSession', () => {
     expect(result.error).toBe('Failed to read JSONL file after warm');
   });
 
+  // B2 bug fix: previously H3 asserted the warmer should derive cwd from
+  // projectDir when called with an empty cwd. The fix moved upstream to
+  // discoverSessions (see sessions.test.ts: "when pidInfo is missing, cwd
+  // falls back to decoded projectDir"), so the warmer now receives a
+  // pre-decoded cwd and just passes it through. The H3 test is obsolete.
+
   it('passes undefined cwd when not provided', async () => {
     mockFs.statSync.mockReturnValue({ size: 0 } as fs.Stats);
 
@@ -536,5 +571,16 @@ describe('warmSession', () => {
 
     const result = await promise;
     expect(result.error).toBeNull();
+  });
+});
+
+describe('makeWarmer', () => {
+  it('returns a warmFn bound to the supplied deps', async () => {
+    const warmFn = makeWarmer({});
+    // No projectDir → the bound function takes the synchronous error path,
+    // exercising the curried call without needing a full PTY fixture.
+    const result = await warmFn('abc-123', "Reply 'ok'", '/tmp');
+    expect(result.error).toBe('No projectDir provided');
+    expect(result.sessionId).toBe('abc-123');
   });
 });

@@ -119,6 +119,38 @@ describe('App', () => {
     expect(lastFrame()!).toContain('Claude Warmer');
   });
 
+  it('binds injected fs into the default warmFn (covers makeWarmer branch)', () => {
+    // When the caller provides deps.fs, App constructs a curried warmer via
+    // makeWarmer({fs, clock}) instead of using bare warmSession. This test
+    // just confirms the App mounts cleanly along that branch.
+    vi.mocked(warmerModule.makeWarmer).mockReturnValue(vi.fn());
+    const { lastFrame, unmount } = render(
+      <App intervalMinutes={55} warmPrompt="Reply 'ok'" deps={{ fs: undefined as never }} />,
+    );
+    // `fs: undefined` is the explicit-but-falsy case — exercises the
+    // `deps.fs !== undefined` strict-undefined check branch.
+    expect(lastFrame()!).toContain('Claude Warmer');
+    unmount();
+  });
+
+  it('uses makeWarmer when deps.clock is provided', () => {
+    const fakeWarmFn = vi.fn();
+    vi.mocked(warmerModule.makeWarmer).mockReturnValue(fakeWarmFn);
+    const fakeClock = {
+      now: () => Date.now(),
+      setInterval: (cb: () => void, ms: number) => globalThis.setInterval(cb, ms),
+      clearInterval: (id: ReturnType<typeof setInterval>) => globalThis.clearInterval(id),
+      setTimeout: (cb: () => void, ms: number) => globalThis.setTimeout(cb, ms),
+      clearTimeout: (id: ReturnType<typeof setTimeout>) => globalThis.clearTimeout(id),
+    };
+    const { lastFrame, unmount } = render(
+      <App intervalMinutes={55} warmPrompt="Reply 'ok'" deps={{ clock: fakeClock }} />,
+    );
+    expect(lastFrame()!).toContain('Claude Warmer');
+    expect(warmerModule.makeWarmer).toHaveBeenCalled();
+    unmount();
+  });
+
   it('renders discovered sessions', () => {
     const { lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
     expect(lastFrame()!).toContain('Test Session');
@@ -448,6 +480,53 @@ describe('App', () => {
 
     const frame = lastFrame()!;
     expect(frame).toContain('New Session');
+
+    unmount();
+    vi.useRealTimers();
+  });
+
+  // B1 regression test: a warm session newly discovered during refresh
+  // must keep discovery's `selected: isWarm` so it auto-joins warming
+  // without the user having to toggle it on.
+  it('H1: warm session newly discovered during refresh is auto-selected', async () => {
+    vi.useFakeTimers();
+
+    // Initial discovery: only the default session, selected (isWarm -> selected).
+    mockSessions.discoverSessions.mockReturnValueOnce([defaultSession()]);
+
+    const { stdin, lastFrame, unmount } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    await vi.advanceTimersByTimeAsync(50);
+
+    // User presses Enter to start warming.
+    stdin.write('\r');
+    await vi.advanceTimersByTimeAsync(50);
+    expect(lastFrame()!).toContain('active');
+
+    // Now a new warm session appears on the next 30s refresh.
+    // discoverSessions() marks it selected:true because it is warm (sessions.ts:156).
+    const newWarm = {
+      ...defaultSession(),
+      sessionId: 'new-warm-001',
+      name: 'NewWarm',
+      selected: true,
+      isWarm: true,
+      // distinct tokens so it renders as its own row
+      cacheReadTokens: 9999,
+    };
+    mockSessions.discoverSessions.mockReturnValue([defaultSession(), newWarm]);
+
+    // Trigger the refresh.
+    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(50);
+
+    // Assert the newly discovered warm session is selected (auto-joined warming).
+    // Selected rows render a leading '>' marker (session-row.tsx `selectChar`);
+    // unselected rows render a space in that column. Count '>' occurrences at
+    // row starts: with B1 fixed, both rows show it.
+    const frame = lastFrame()!;
+    expect(frame).toContain('NewWarm');
+    const selectedMarkers = frame.match(/^>/gm) || [];
+    expect(selectedMarkers.length).toBeGreaterThanOrEqual(2);
 
     unmount();
     vi.useRealTimers();

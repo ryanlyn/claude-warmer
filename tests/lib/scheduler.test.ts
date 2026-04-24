@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Scheduler } from '../../src/lib/scheduler.js';
 import type { Session, WarmResult } from '../../src/lib/types.js';
-import { WARM_THRESHOLD_MS } from '../../src/lib/types.js';
+import { WARM_THRESHOLD_MS, SAFETY_MARGIN_MS, BACKOFF_SCHEDULE_MS } from '../../src/lib/types.js';
 
 function makeSession(overrides: Partial<Session> = {}): Session {
   return {
@@ -87,7 +87,7 @@ describe('Scheduler', () => {
   });
 
   describe('tick', () => {
-    it('warms a session that is due', async () => {
+    it('warms a session that is due and clamps nextWarmAt by the safety margin', async () => {
       const session = makeSession({ nextWarmAt: Date.now() - 1000 });
       const updated = await scheduler.tick([session], 'Reply with only the word OK');
 
@@ -95,13 +95,23 @@ describe('Scheduler', () => {
       expect(updated[0].warmCount).toBe(1);
       expect(updated[0].warmingStatus).toBe('success');
       expect(updated[0].lastWarmedAt).toBeGreaterThan(0);
-      expect(updated[0].nextWarmAt).toBe(updated[0].lastWarmedAt! + 55 * 60 * 1000);
+      // Scheduler was constructed with intervalMinutes=55 == WARM_THRESHOLD_MS,
+      // which exceeds the (WARM_THRESHOLD_MS - SAFETY_MARGIN_MS) cap, so the
+      // next warm is clamped to that cap rather than the literal 55min.
+      const cap = WARM_THRESHOLD_MS - SAFETY_MARGIN_MS;
+      expect(updated[0].nextWarmAt).toBe(updated[0].lastWarmedAt! + cap);
     });
 
     it('does not warm a session that is not yet due', async () => {
       const session = makeSession({ nextWarmAt: Date.now() + 60_000 });
       await scheduler.tick([session], 'Reply with only the word OK');
       expect(mockWarmFn).not.toHaveBeenCalled();
+    });
+
+    it('returns the same sessions reference when nothing was warmed', async () => {
+      const sessions = [makeSession({ nextWarmAt: Date.now() + 60_000 })];
+      const result = await scheduler.tick(sessions, 'Reply OK');
+      expect(result).toBe(sessions);
     });
 
     it('falls back to session model when result model is empty', async () => {
@@ -120,7 +130,7 @@ describe('Scheduler', () => {
       expect(updated[0].model).toBe('claude-sonnet-4-6');
     });
 
-    it('marks session as error on warm failure', async () => {
+    it('marks session as error on warm failure and uses bounded retry backoff', async () => {
       mockWarmFn.mockResolvedValueOnce({
         sessionId: 'test-id',
         usage: { inputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, outputTokens: 0 },
@@ -130,12 +140,53 @@ describe('Scheduler', () => {
       });
 
       const session = makeSession({ nextWarmAt: Date.now() - 1000 });
+      const beforeTick = Date.now();
       const updated = await scheduler.tick([session], 'Reply with only the word OK');
 
       expect(updated[0].warmingStatus).toBe('error');
       expect(updated[0].lastWarmError).toBe('CLI failed');
-      // Should still schedule next attempt
-      expect(updated[0].nextWarmAt).toBeGreaterThan(Date.now());
+      expect(updated[0].consecutiveErrors).toBe(1);
+      // First-failure retry should land at warmTime + BACKOFF_SCHEDULE_MS[0]
+      // (30s), NOT warmTime + intervalMs (55min).
+      expect(updated[0].nextWarmAt).toBeGreaterThanOrEqual(beforeTick + BACKOFF_SCHEDULE_MS[0]);
+      expect(updated[0].nextWarmAt).toBeLessThan(beforeTick + 60_000);
+    });
+
+    it('increments consecutiveErrors across repeated failures and resets on success', async () => {
+      const errResult: WarmResult = {
+        sessionId: 'test-id',
+        usage: { inputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, outputTokens: 0 },
+        model: '',
+        costUsd: 0,
+        error: 'CLI failed',
+      };
+      mockWarmFn
+        .mockResolvedValueOnce(errResult)
+        .mockResolvedValueOnce(errResult)
+        .mockResolvedValueOnce({
+          sessionId: 'test-id',
+          usage: { inputTokens: 0, cacheReadInputTokens: 50000, cacheCreationInputTokens: 0, outputTokens: 3 },
+          model: 'claude-sonnet-4-6',
+          costUsd: 0.015,
+          error: null,
+        });
+
+      let session = makeSession({ nextWarmAt: Date.now() - 1000 });
+
+      const after1 = (await scheduler.tick([session], 'OK'))[0];
+      expect(after1.consecutiveErrors).toBe(1);
+      // Use the second backoff slot (index 1) on the next attempt.
+      const expectedSecondBackoff = after1.nextWarmAt!;
+      expect(expectedSecondBackoff).toBe(after1.nextWarmAt!);
+
+      session = { ...after1, nextWarmAt: Date.now() - 1000 };
+      const after2 = (await scheduler.tick([session], 'OK'))[0];
+      expect(after2.consecutiveErrors).toBe(2);
+
+      session = { ...after2, nextWarmAt: Date.now() - 1000 };
+      const after3 = (await scheduler.tick([session], 'OK'))[0];
+      expect(after3.warmingStatus).toBe('success');
+      expect(after3.consecutiveErrors).toBe(0);
     });
 
     it('warms sessions sequentially, not in parallel', async () => {

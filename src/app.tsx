@@ -1,12 +1,14 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { Box, Text, useInput, useApp, useStdout } from 'ink';
 import { TextInput } from '@inkjs/ui';
 import { execSync } from 'node:child_process';
-import type { Session } from './lib/types.js';
+import type { Session, WarmFn } from './lib/types.js';
 import { discoverSessions } from './lib/sessions.js';
-import { warmSession } from './lib/warmer.js';
+import { makeWarmer, warmSession } from './lib/warmer.js';
 import { Scheduler } from './lib/scheduler.js';
 import { computeLayout } from './lib/layout.js';
+import { appReducer, initialState, type AppSessionState } from './lib/app-reducer.js';
+import { realClock, realFs, type Clock, type Fs, type Random } from './lib/deps.js';
 import { Header } from './components/header.js';
 import { SessionTable } from './components/session-table.js';
 import { Footer } from './components/footer.js';
@@ -14,11 +16,31 @@ import { Footer } from './components/footer.js';
 interface AppProps {
   intervalMinutes: number;
   warmPrompt: string;
+  /**
+   * Optional dependency injection for tests and integration runs. When
+   * omitted, real Date/setInterval/node:fs/warmSession are used. When
+   * supplied, every timer, filesystem read, warmer call, and RNG draw
+   * routes through the injected surface, which lets an accelerated
+   * integration run drive multi-hour behavior with fake clocks and
+   * in-memory state.
+   */
+  deps?: {
+    clock?: Clock;
+    fs?: Fs;
+    warmFn?: WarmFn;
+    random?: Random;
+    /** Polling cadence for the warm-tick loop. Defaults to 30s. */
+    tickIntervalMs?: number;
+    /** Polling cadence for the discoverSessions refresh. Defaults to 30s. */
+    refreshIntervalMs?: number;
+  };
 }
 
 type EditingField = 'prompt' | 'interval' | null;
 
 const REFRESH_INTERVAL_SEC = 30;
+const DEFAULT_REFRESH_INTERVAL_MS = REFRESH_INTERVAL_SEC * 1000;
+const DEFAULT_TICK_INTERVAL_MS = 30_000;
 
 function clampIndex(index: number, length: number): number {
   if (length <= 0) return 0;
@@ -30,18 +52,43 @@ function clampScrollOffset(offset: number, length: number, visibleRows: number):
   return Math.min(Math.max(offset, 0), maxOffset);
 }
 
-export function App({ intervalMinutes: initialInterval, warmPrompt: initialPrompt }: AppProps) {
+export function App({ intervalMinutes: initialInterval, warmPrompt: initialPrompt, deps = {} }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
-  const [sessions, setSessions] = useState<Session[]>(() => discoverSessions());
+  const clock = deps.clock ?? realClock;
+  const fs = deps.fs ?? realFs;
+  // When a caller injects fs/clock, bind them into the default warmFn too so
+  // the injection is consistent end-to-end. When neither is overridden we
+  // pass the raw warmSession through, which keeps tests that
+  // `vi.mock('warmer.js')` working without also having to mock `makeWarmer`.
+  const warmFn =
+    deps.warmFn ?? (deps.fs !== undefined || deps.clock !== undefined ? makeWarmer({ fs, clock }) : warmSession);
+  const random = deps.random ?? Math.random;
+  const tickIntervalMs = deps.tickIntervalMs ?? DEFAULT_TICK_INTERVAL_MS;
+  const refreshIntervalMs = deps.refreshIntervalMs ?? DEFAULT_REFRESH_INTERVAL_MS;
+
+  const [state, dispatch] = useReducer(appReducer, initialState(initialInterval, initialPrompt), (init) => ({
+    ...init,
+    sessions: discoverSessions(fs, clock),
+  }));
+  const { sessions, warming, intervalMinutes, warmPrompt } = state;
+
   const [highlightedIndex, setHighlightedIndex] = useState(0);
-  const [warming, setWarming] = useState(false);
-  const [intervalMinutes, setIntervalMinutes] = useState(initialInterval);
-  const [warmPrompt, setWarmPrompt] = useState(initialPrompt);
   const [editingField, setEditingField] = useState<EditingField>(null);
   const [scrollOffset, setScrollOffset] = useState(0);
-  const [lastRefreshed, setLastRefreshed] = useState<number | null>(Date.now());
-  const schedulerRef = useRef<Scheduler>(new Scheduler(warmSession, initialInterval));
+  const [lastRefreshed, setLastRefreshed] = useState<number | null>(clock.now());
+
+  // Latest-state ref so callbacks can read fresh data without depending on
+  // useCallback identity / closure capture of each reducer field.
+  const stateRef = useRef<AppSessionState>(state);
+  stateRef.current = state;
+
+  // Lazy-init: useRef's initial-value arg is evaluated every render. We only
+  // want one Scheduler per mount, hence the construct-on-first-read pattern.
+  const schedulerRef = useRef<Scheduler>(undefined as unknown as Scheduler);
+  if (!schedulerRef.current) {
+    schedulerRef.current = new Scheduler(warmFn, initialInterval, random, clock);
+  }
   const tickingRef = useRef(false);
 
   /* v8 ignore next */
@@ -49,33 +96,22 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
   const layout = computeLayout(cols);
   const visibleRows = Math.min((stdout?.rows ?? 24) - 6, 20);
 
-  // Periodic session refresh
+  // Periodic session refresh. When warming is active, sessions newly seen
+  // AND auto-selected by discovery get scheduled immediately via addSession
+  // so the next tick picks them up; otherwise they would render selected
+  // but with nextWarmAt:null and never be warmed.
   useEffect(() => {
-    const interval = setInterval(() => {
-      const fresh = discoverSessions();
-      setSessions((prev) => {
-        // Preserve warming state from current sessions
-        const stateMap = new Map(prev.map((s) => [s.sessionId, s]));
-        return fresh.map((s) => {
-          const existing = stateMap.get(s.sessionId);
-          if (!existing) return { ...s, selected: false };
-          return {
-            ...s,
-            selected: existing.selected,
-            warmingStatus: existing.warmingStatus,
-            warmCostUsd: existing.warmCostUsd,
-            warmCount: existing.warmCount,
-            nextWarmAt: existing.nextWarmAt,
-            lastWarmedAt: existing.lastWarmedAt,
-            lastWarmError: existing.lastWarmError,
-          };
-        });
-      });
-      setLastRefreshed(Date.now());
-    }, REFRESH_INTERVAL_SEC * 1000);
-
-    return () => clearInterval(interval);
-  }, []);
+    const id = clock.setInterval(() => {
+      const raw = discoverSessions(fs, clock);
+      const known = new Set(stateRef.current.sessions.map((s) => s.sessionId));
+      const fresh = stateRef.current.warming
+        ? raw.map((s) => (!known.has(s.sessionId) && s.selected ? schedulerRef.current.addSession(s) : s))
+        : raw;
+      dispatch({ type: 'REFRESH_MERGE', fresh });
+      setLastRefreshed(clock.now());
+    }, refreshIntervalMs);
+    return () => clock.clearInterval(id);
+  }, [clock, fs, refreshIntervalMs]);
 
   useEffect(() => {
     setHighlightedIndex((prev) => clampIndex(prev, sessions.length));
@@ -98,74 +134,57 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
 
   const toggleSelection = useCallback(
     (index: number) => {
-      setSessions((prev) => {
-        const updated = [...prev];
-        const session = updated[index];
-        /* v8 ignore next */
-        if (!session) return prev;
-        const newSelected = !session.selected;
-        updated[index] = { ...session, selected: newSelected };
-
-        if (warming) {
-          if (newSelected) {
-            updated[index] = schedulerRef.current.addSession(updated[index]);
-          } else {
-            updated[index] = schedulerRef.current.removeSession(updated[index]);
-          }
-        }
-
-        return updated;
-      });
+      const current = stateRef.current;
+      const session = current.sessions[index];
+      /* v8 ignore next */
+      if (!session) return;
+      const newSelected = !session.selected;
+      let next: Session = { ...session, selected: newSelected };
+      if (current.warming) {
+        next = newSelected ? schedulerRef.current.addSession(next) : schedulerRef.current.removeSession(next);
+      }
+      dispatch({ type: 'REPLACE_SESSION', sessionId: session.sessionId, next });
     },
-    [warming],
+    [],
   );
 
   const selectActive = useCallback(() => {
-    setSessions((prev) =>
-      prev.map((s) => {
-        const shouldSelect = s.isLive || s.isWarm;
-        const updated = { ...s, selected: shouldSelect };
-        if (warming) {
-          if (shouldSelect) {
-            return schedulerRef.current.addSession(updated);
-          }
-          return schedulerRef.current.removeSession(updated);
-        }
-        return updated;
-      }),
-    );
-  }, [warming]);
+    const current = stateRef.current;
+    const next = current.sessions.map((s) => {
+      const shouldSelect = s.isLive || s.isWarm;
+      let updated: Session = { ...s, selected: shouldSelect };
+      if (current.warming) {
+        updated = shouldSelect ? schedulerRef.current.addSession(updated) : schedulerRef.current.removeSession(updated);
+      }
+      return updated;
+    });
+    dispatch({ type: 'REPLACE_ALL', next });
+  }, []);
 
   const selectNone = useCallback(() => {
-    setSessions((prev) =>
-      prev.map((s) => {
-        const updated = { ...s, selected: false };
-        if (warming) {
-          return schedulerRef.current.removeSession(updated);
-        }
-        return updated;
-      }),
-    );
-  }, [warming]);
+    const current = stateRef.current;
+    const next = current.sessions.map((s) => {
+      const updated: Session = { ...s, selected: false };
+      return current.warming ? schedulerRef.current.removeSession(updated) : updated;
+    });
+    dispatch({ type: 'REPLACE_ALL', next });
+  }, []);
 
   const toggleWarming = useCallback(() => {
-    setWarming((prev) => !prev);
-    setSessions((current) => {
-      if (!warming) {
-        return schedulerRef.current.bootstrap(current);
-      }
+    const current = stateRef.current;
+    if (!current.warming) {
+      const bootstrapped = schedulerRef.current.bootstrap(current.sessions);
+      dispatch({ type: 'WARMING_ON', bootstrapped });
+    } else {
       schedulerRef.current.stop();
-      return current.map((s) => ({
-        ...s,
-        nextWarmAt: null,
-        warmingStatus: s.warmingStatus === 'warming' ? 'idle' : s.warmingStatus,
-      }));
-    });
-  }, [warming]);
+      dispatch({ type: 'WARMING_OFF' });
+    }
+  }, []);
 
   const copySessionId = useCallback(() => {
-    if (sessions.length === 0) return;
-    const session = sessions[highlightedIndex];
+    const current = stateRef.current;
+    if (current.sessions.length === 0) return;
+    const session = current.sessions[highlightedIndex];
     /* v8 ignore next */
     if (!session) return;
     try {
@@ -173,32 +192,27 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
     } catch {
       // silently ignore clipboard errors
     }
-  }, [sessions, highlightedIndex]);
+  }, [highlightedIndex]);
 
   useEffect(() => {
     if (!warming) return;
 
-    const interval = setInterval(async () => {
+    const id = clock.setInterval(async () => {
       /* v8 ignore next */
       if (tickingRef.current) return;
       tickingRef.current = true;
       try {
-        const snapshot = await new Promise<Session[]>((resolve) => {
-          setSessions((current) => {
-            resolve(current);
-            return current;
-          });
-        });
-        const updated = await schedulerRef.current.tick(snapshot, warmPrompt);
+        const snapshot = stateRef.current.sessions;
+        const updated = await schedulerRef.current.tick(snapshot, stateRef.current.warmPrompt);
         /* v8 ignore next */
-        setSessions(updated);
+        dispatch({ type: 'TICK_RESULT', updated });
       } finally {
         tickingRef.current = false;
       }
-    }, 30_000);
+    }, tickIntervalMs);
 
-    return () => clearInterval(interval);
-  }, [warming, warmPrompt]);
+    return () => clock.clearInterval(id);
+  }, [warming, clock, tickIntervalMs]);
 
   useInput(
     (input, key) => {
@@ -276,7 +290,7 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
 
   const handlePromptSubmit = useCallback((value: string) => {
     if (value.trim()) {
-      setWarmPrompt(value.trim());
+      dispatch({ type: 'SET_PROMPT', prompt: value.trim() });
     }
     setEditingField(null);
   }, []);
@@ -285,15 +299,16 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
     (value: string) => {
       const parsed = parseInt(value, 10);
       if (!isNaN(parsed) && parsed >= 1 && parsed <= 59) {
-        setIntervalMinutes(parsed);
-        schedulerRef.current = new Scheduler(warmSession, parsed);
-        if (warming) {
-          setSessions((current) => schedulerRef.current.bootstrap(current));
+        dispatch({ type: 'SET_INTERVAL', minutes: parsed });
+        schedulerRef.current = new Scheduler(warmFn, parsed, random, clock);
+        if (stateRef.current.warming) {
+          const bootstrapped = schedulerRef.current.bootstrap(stateRef.current.sessions);
+          dispatch({ type: 'REPLACE_ALL', next: bootstrapped });
         }
       }
       setEditingField(null);
     },
-    [warming],
+    [clock, random, warmFn],
   );
 
   return (

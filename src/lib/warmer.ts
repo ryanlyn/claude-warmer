@@ -1,10 +1,9 @@
-import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { execFileSync } from 'node:child_process';
-import * as pty from 'node-pty';
 import type { WarmResult, SessionUsage } from './types.js';
 import { calcWarmCost } from './pricing.js';
+import { realClock, realFs, realSpawn, type Clock, type Fs, type SpawnFn } from './deps.js';
 
 const EMPTY_USAGE: SessionUsage = {
   inputTokens: 0,
@@ -20,6 +19,13 @@ let resolvedClaudePath: string | null = null;
 
 export function getClaudePath(): string {
   if (resolvedClaudePath) return resolvedClaudePath;
+  // Integration-test escape hatch: CLAUDE_PATH overrides `which claude`
+  // so tests can point the warmer at a deterministic fake binary.
+  const envPath = process.env.CLAUDE_PATH;
+  if (envPath && envPath.length > 0) {
+    resolvedClaudePath = envPath;
+    return resolvedClaudePath;
+  }
   try {
     resolvedClaudePath = execFileSync('which', ['claude'], { encoding: 'utf-8' }).trim();
   } catch {
@@ -74,12 +80,23 @@ export function extractUsageFromNewLines(newContent: string): ParsedOutput {
   return { usage: EMPTY_USAGE, model: '', error: 'No assistant message with usage in new JSONL lines' };
 }
 
+export interface WarmerDeps {
+  fs?: Fs;
+  spawn?: SpawnFn;
+  clock?: Clock;
+}
+
 export function warmSession(
   sessionId: string,
   warmPrompt: string,
   cwd?: string,
   projectDir?: string,
+  deps: WarmerDeps = {},
 ): Promise<WarmResult> {
+  const fs = deps.fs ?? realFs;
+  const spawn = deps.spawn ?? realSpawn;
+  const clock = deps.clock ?? realClock;
+
   const errorResult = (error: string): WarmResult => ({
     sessionId,
     usage: EMPTY_USAGE,
@@ -111,8 +128,8 @@ export function warmSession(
       /* v8 ignore next */
       if (resolved) return;
       resolved = true;
-      if (settleTimer) clearTimeout(settleTimer);
-      if (totalTimer) clearTimeout(totalTimer);
+      if (settleTimer) clock.clearTimeout(settleTimer);
+      if (totalTimer) clock.clearTimeout(totalTimer);
 
       if (error) {
         resolve(errorResult(error));
@@ -153,9 +170,9 @@ export function warmSession(
       });
     };
 
-    let ptyProcess: pty.IPty;
+    let ptyProcess: ReturnType<SpawnFn>;
     try {
-      ptyProcess = pty.spawn(getClaudePath(), ['--resume', sessionId], {
+      ptyProcess = spawn(getClaudePath(), ['--resume', sessionId], {
         name: 'xterm-color',
         cols: 120,
         rows: 40,
@@ -168,8 +185,8 @@ export function warmSession(
     }
 
     const resetSettle = () => {
-      if (settleTimer) clearTimeout(settleTimer);
-      settleTimer = setTimeout(() => {
+      if (settleTimer) clock.clearTimeout(settleTimer);
+      settleTimer = clock.setTimeout(() => {
         if (phase === 'waiting-for-ready') {
           phase = 'sent-prompt';
           ptyProcess.write(warmPrompt + '\r');
@@ -181,7 +198,7 @@ export function warmSession(
           phase = 'done';
           ptyProcess.write('/exit\r');
           // Give it time to exit gracefully, then kill
-          setTimeout(() => {
+          clock.setTimeout(() => {
             if (!resolved) {
               try {
                 ptyProcess.kill();
@@ -205,7 +222,7 @@ export function warmSession(
       finish();
     });
 
-    totalTimer = setTimeout(() => {
+    totalTimer = clock.setTimeout(() => {
       /* v8 ignore next */
       if (!resolved) {
         finish('Warm session timed out');
@@ -220,4 +237,14 @@ export function warmSession(
     // Start the settle timer for initial readiness detection
     resetSettle();
   });
+}
+
+/**
+ * Curry a `warmSession` bound to a fixed deps bag — useful to pass into
+ * `new Scheduler(warmFn, ...)` when the caller wants an injected fs/spawn/clock
+ * applied to every invocation.
+ */
+export function makeWarmer(baseDeps: WarmerDeps) {
+  return (sessionId: string, prompt: string, cwd?: string, projectDir?: string) =>
+    warmSession(sessionId, prompt, cwd, projectDir, baseDeps);
 }

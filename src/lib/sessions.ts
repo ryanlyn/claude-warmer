@@ -1,9 +1,9 @@
-import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import type { Session } from './types.js';
 import { calcExpiryCost } from './pricing.js';
 import { WARM_THRESHOLD_MS } from './types.js';
+import { realClock, realFs, type Clock, type Fs } from './deps.js';
 
 interface ParsedSession {
   name: string;
@@ -19,6 +19,91 @@ interface PidEntry {
   cwd: string;
   startedAt: number;
   kind: string;
+}
+
+/**
+ * Greedy filesystem-aware decoder for Claude Code project-dir names. Tries
+ * to recover the original absolute path by walking the encoded segments
+ * left-to-right; at each step any number of remaining parts can be glued
+ * together with `-` to form a single path segment, and a candidate is only
+ * accepted if it stat()s as a directory. Returns null when no traversal
+ * reaches the end with every prefix existing on disk.
+ *
+ * Worst case is O(2^n) candidates for n hyphens in the encoded form, but
+ * in practice the filesystem prunes branches aggressively (most candidate
+ * prefixes don't exist). Results are memoized at module level — see
+ * `smartDecodeCache`.
+ */
+export function findProjectCwd(fs: Fs, encoded: string): string | null {
+  if (!encoded.startsWith('-')) return null;
+  const parts = encoded.slice(1).split('-');
+
+  const isDir = (p: string): boolean => {
+    try {
+      return fs.statSync(p).isDirectory();
+    } catch {
+      return false;
+    }
+  };
+
+  function dfs(prefix: string, idx: number): string | null {
+    if (idx >= parts.length) return prefix;
+    for (let span = 1; span <= parts.length - idx; span++) {
+      const segment = parts.slice(idx, idx + span).join('-');
+      const candidate = prefix + '/' + segment;
+      if (isDir(candidate)) {
+        const result = dfs(candidate, idx + span);
+        if (result) return result;
+      }
+    }
+    return null;
+  }
+
+  return dfs('', 0);
+}
+
+/**
+ * Module-level cache for `findProjectCwd`. Filesystem layout for project
+ * directories changes rarely, so caching across `discoverSessions` calls
+ * avoids re-running the O(2^n) DFS on every 30s refresh. A stale negative
+ * cache entry would only matter if the user later created a missing
+ * directory; a process restart is acceptable for that case.
+ */
+const smartDecodeCache = new Map<string, string | null>();
+
+/**
+ * Resolve the cwd to use when warming a session, falling back through
+ * progressively weaker hints. The order matters: stronger hints are
+ * authoritative because Claude Code records them, weaker ones are
+ * heuristics that can be wrong on hyphenated paths.
+ *   1. The session's own PID file (authoritative when the session is live).
+ *   2. Any sibling PID file from the same project (authoritative — the
+ *      encoded projectDir round-trips with the recorded cwd).
+ *   3. Filesystem-aware greedy decode via `findProjectCwd`.
+ *   4. Empty string (warmer falls back to its own cwd, which usually fails
+ *      — but better than spawning into a non-existent directory).
+ */
+function resolveSessionCwd(
+  fs: Fs,
+  pidInfo: { cwd: string } | undefined,
+  siblingCwdByProject: Map<string, string>,
+  projectDir: string,
+): string {
+  if (pidInfo?.cwd) return pidInfo.cwd;
+  const sibling = siblingCwdByProject.get(projectDir);
+  if (sibling) return sibling;
+  let smart = smartDecodeCache.get(projectDir);
+  if (smart === undefined) {
+    smart = findProjectCwd(fs, projectDir);
+    smartDecodeCache.set(projectDir, smart);
+  }
+  return smart ?? '';
+}
+
+// Inverse of Claude Code's `/`→`-` encoding for cwd paths. Used only for
+// the sibling-PID lookup map key; not a path constructor.
+function encodeCwd(cwd: string): string {
+  return cwd.replace(/\//g, '-');
 }
 
 export function checkPidAlive(pid: number): boolean {
@@ -85,11 +170,17 @@ export function parseJsonlFile(content: string, sessionId: string): ParsedSessio
   };
 }
 
-function loadPidFiles(): Map<string, { cwd: string; pid: number; isLive: boolean }> {
-  const sessionsDir = path.join(os.homedir(), '.claude', 'sessions');
-  const map = new Map<string, { cwd: string; pid: number; isLive: boolean }>();
+interface PidLookups {
+  bySessionId: Map<string, { cwd: string; pid: number; isLive: boolean }>;
+  cwdByProject: Map<string, string>;
+}
 
-  if (!fs.existsSync(sessionsDir)) return map;
+function loadPidFiles(fs: Fs): PidLookups {
+  const sessionsDir = path.join(os.homedir(), '.claude', 'sessions');
+  const bySessionId = new Map<string, { cwd: string; pid: number; isLive: boolean }>();
+  const cwdByProject = new Map<string, string>();
+
+  if (!fs.existsSync(sessionsDir)) return { bySessionId, cwdByProject };
 
   for (const file of fs.readdirSync(sessionsDir)) {
     if (!file.endsWith('.json')) continue;
@@ -97,22 +188,26 @@ function loadPidFiles(): Map<string, { cwd: string; pid: number; isLive: boolean
       const content = fs.readFileSync(path.join(sessionsDir, file), 'utf-8');
       const entry: PidEntry = JSON.parse(content);
       const isLive = checkPidAlive(entry.pid);
-      map.set(entry.sessionId, { cwd: entry.cwd, pid: entry.pid, isLive });
+      bySessionId.set(entry.sessionId, { cwd: entry.cwd, pid: entry.pid, isLive });
+      // Reverse map: any PID file from the same project gives an authoritative
+      // cwd we can use for sessions in that project that have no PID file
+      // of their own. Resolves the hyphen-ambiguity in the encoding.
+      if (entry.cwd) cwdByProject.set(encodeCwd(entry.cwd), entry.cwd);
     } catch {
       continue;
     }
   }
 
-  return map;
+  return { bySessionId, cwdByProject };
 }
 
-export function discoverSessions(): Session[] {
+export function discoverSessions(fs: Fs = realFs, clock: Clock = realClock): Session[] {
   const projectsDir = path.join(os.homedir(), '.claude', 'projects');
   if (!fs.existsSync(projectsDir)) return [];
 
-  const pidMap = loadPidFiles();
+  const { bySessionId: pidMap, cwdByProject: siblingCwdByProject } = loadPidFiles(fs);
   const sessions: Session[] = [];
-  const now = Date.now();
+  const now = clock.now();
 
   for (const projectDir of fs.readdirSync(projectsDir)) {
     const projectPath = path.join(projectsDir, projectDir);
@@ -145,7 +240,7 @@ export function discoverSessions(): Session[] {
         sessionId,
         name: parsed.name,
         projectDir,
-        cwd: pidInfo?.cwd || '',
+        cwd: resolveSessionCwd(fs, pidInfo, siblingCwdByProject, projectDir),
         model,
         lastAssistantTimestamp: parsed.lastAssistantTimestamp,
         isWarm,

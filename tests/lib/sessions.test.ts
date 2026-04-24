@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { discoverSessions, parseJsonlFile, checkPidAlive } from '../../src/lib/sessions.js';
+import { discoverSessions, parseJsonlFile, checkPidAlive, findProjectCwd } from '../../src/lib/sessions.js';
+import type { Fs } from '../../src/lib/deps.js';
 import * as fs from 'node:fs';
 
 import * as os from 'node:os';
@@ -14,6 +15,38 @@ beforeEach(() => {
   vi.resetAllMocks();
   mockOs.homedir.mockReturnValue('/mock-home');
 });
+
+/**
+ * Minimal in-memory Fs fake keyed by absolute path. Exists alongside the
+ * `vi.mock('node:fs')` tests to demonstrate the DI surface — tests that want
+ * typed, explicit filesystem state can supply one of these instead of
+ * configuring `vi.mocked(fs)` per call.
+ */
+function memoryFs(state: {
+  dirs: string[];
+  files: Record<string, string>;
+  entries: Record<string, string[]>;
+}): Fs {
+  const exists = (p: string) => state.dirs.includes(p) || p in state.files;
+  return {
+    existsSync: ((p: fs.PathLike) => exists(p.toString())) as Fs['existsSync'],
+    readdirSync: ((p: fs.PathLike) => {
+      const entries = state.entries[p.toString()];
+      if (!entries) throw new Error(`ENOENT: ${p}`);
+      return entries as unknown as fs.Dirent[];
+    }) as Fs['readdirSync'],
+    readFileSync: ((p: fs.PathOrFileDescriptor) => {
+      const key = p.toString();
+      if (key in state.files) return state.files[key];
+      throw new Error(`ENOENT: ${key}`);
+    }) as Fs['readFileSync'],
+    statSync: (() => ({ size: 0 }) as fs.Stats) as Fs['statSync'],
+    openSync: (() => 0) as Fs['openSync'],
+    fstatSync: (() => ({ size: 0 }) as fs.Stats) as Fs['fstatSync'],
+    readSync: (() => 0) as Fs['readSync'],
+    closeSync: (() => undefined) as Fs['closeSync'],
+  };
+}
 
 describe('parseJsonlFile', () => {
   it('extracts session data from valid JSONL', () => {
@@ -205,6 +238,65 @@ describe('checkPidAlive', () => {
   });
 });
 
+describe('findProjectCwd (filesystem-aware decoder)', () => {
+  function memFs(existingDirs: string[]): import('../../src/lib/deps.js').Fs {
+    const set = new Set(existingDirs);
+    return {
+      existsSync: ((p: import('node:fs').PathLike) => set.has(p.toString())) as never,
+      readdirSync: (() => []) as never,
+      readFileSync: (() => '') as never,
+      statSync: ((p: import('node:fs').PathLike) => {
+        if (!set.has(p.toString())) throw new Error('ENOENT');
+        return { isDirectory: () => true } as import('node:fs').Stats;
+      }) as never,
+      openSync: (() => 0) as never,
+      fstatSync: (() => ({ size: 0 }) as import('node:fs').Stats) as never,
+      readSync: (() => 0) as never,
+      closeSync: (() => undefined) as never,
+    };
+  }
+
+  it('recovers a path with no hyphen ambiguity', () => {
+    const fs = memFs(['/Users', '/Users/ryan', '/Users/ryan/dev']);
+    expect(findProjectCwd(fs, '-Users-ryan-dev')).toBe('/Users/ryan/dev');
+  });
+
+  it('recovers a path containing a hyphen in the last segment (the claude-warmer case)', () => {
+    const fs = memFs(['/Users', '/Users/ryan', '/Users/ryan/dev', '/Users/ryan/dev/claude-warmer']);
+    expect(findProjectCwd(fs, '-Users-ryan-dev-claude-warmer')).toBe('/Users/ryan/dev/claude-warmer');
+  });
+
+  it('prefers the / split when both /a/b and /a-b exist (greedy left-to-right)', () => {
+    const fs = memFs(['/foo', '/foo/bar', '/foo-bar']);
+    expect(findProjectCwd(fs, '-foo-bar')).toBe('/foo/bar');
+  });
+
+  it('falls through to /a-b when /a/b does not exist', () => {
+    const fs = memFs(['/foo-bar']);
+    expect(findProjectCwd(fs, '-foo-bar')).toBe('/foo-bar');
+  });
+
+  it('returns null when no traversal reaches the end', () => {
+    const fs = memFs(['/Users', '/Users/ryan']);
+    expect(findProjectCwd(fs, '-Users-ryan-doesnotexist')).toBeNull();
+  });
+
+  it('returns null on a malformed (no leading hyphen) input', () => {
+    const fs = memFs([]);
+    expect(findProjectCwd(fs, 'no-leading-dash')).toBeNull();
+  });
+
+  it('returns null on an empty input (no parts)', () => {
+    const fs = memFs([]);
+    expect(findProjectCwd(fs, '-')).toBeNull();
+  });
+
+  it('handles nested hyphens in interior segments (recursive backtrack)', () => {
+    const fs = memFs(['/a', '/a/b-c', '/a/b-c/d']);
+    expect(findProjectCwd(fs, '-a-b-c-d')).toBe('/a/b-c/d');
+  });
+});
+
 describe('discoverSessions', () => {
   it('returns empty array when no project dirs exist', () => {
     mockFs.existsSync.mockReturnValue(false);
@@ -314,9 +406,133 @@ describe('discoverSessions', () => {
 
     const sessions = discoverSessions();
     expect(sessions).toHaveLength(1);
-    // No PID info, so cwd should be empty and isLive false
+    // No PID info and decoded path fails stat(), so cwd is empty.
     expect(sessions[0].cwd).toBe('');
     expect(sessions[0].isLive).toBe(false);
+  });
+
+  it('when pidInfo is missing and decoded path stat()s, cwd falls back to decoded projectDir', () => {
+    mockFs.existsSync.mockReturnValue(true);
+    mockFs.readdirSync.mockImplementation((dirPath: fs.PathLike) => {
+      const p = dirPath.toString();
+      if (p.endsWith('/projects')) {
+        return ['-Users-ryan-dev'] as unknown as fs.Dirent[];
+      }
+      if (p.includes('-Users-ryan-dev')) {
+        return ['abc-123.jsonl'] as unknown as fs.Dirent[];
+      }
+      if (p.endsWith('/sessions')) {
+        // No PID files => no pidInfo for the discovered session
+        return [] as unknown as fs.Dirent[];
+      }
+      return [] as unknown as fs.Dirent[];
+    });
+    mockFs.readFileSync.mockImplementation((filePath: fs.PathOrFileDescriptor) => {
+      const p = filePath.toString();
+      if (p.endsWith('abc-123.jsonl')) {
+        return [
+          JSON.stringify({
+            type: 'assistant',
+            message: {
+              role: 'assistant',
+              model: 'claude-opus-4-6',
+              usage: {
+                input_tokens: 0,
+                cache_read_input_tokens: 1000,
+                cache_creation_input_tokens: 0,
+                output_tokens: 1,
+              },
+            },
+            timestamp: new Date().toISOString(),
+          }),
+        ].join('\n');
+      }
+      return '';
+    });
+    // Stat the decoded path — succeeds, so the fallback is used.
+    mockFs.statSync.mockReturnValue({ isDirectory: () => true } as fs.Stats);
+
+    const sessions = discoverSessions();
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].cwd).toBe('/Users/ryan/dev');
+  });
+
+  it('when pidInfo is missing and decoded path does not stat(), cwd is empty', () => {
+    mockFs.existsSync.mockReturnValue(true);
+    mockFs.readdirSync.mockImplementation((dirPath: fs.PathLike) => {
+      const p = dirPath.toString();
+      if (p.endsWith('/projects')) return ['-dev-claude-warmer'] as unknown as fs.Dirent[];
+      if (p.includes('-dev-claude-warmer')) return ['abc.jsonl'] as unknown as fs.Dirent[];
+      if (p.endsWith('/sessions')) return [] as unknown as fs.Dirent[];
+      return [] as unknown as fs.Dirent[];
+    });
+    mockFs.readFileSync.mockImplementation((filePath: fs.PathOrFileDescriptor) => {
+      const p = filePath.toString();
+      if (p.endsWith('abc.jsonl')) {
+        return JSON.stringify({
+          type: 'assistant',
+          message: {
+            role: 'assistant',
+            model: 'claude-opus-4-6',
+            usage: { input_tokens: 0, cache_read_input_tokens: 1000, cache_creation_input_tokens: 0, output_tokens: 1 },
+          },
+          timestamp: new Date().toISOString(),
+        });
+      }
+      return '';
+    });
+    mockFs.statSync.mockImplementation(() => {
+      throw new Error('ENOENT');
+    });
+
+    const sessions = discoverSessions();
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].cwd).toBe('');
+  });
+
+  it('when pidInfo is missing but a sibling PID file records the cwd, sibling wins over naive decode', () => {
+    mockFs.existsSync.mockReturnValue(true);
+    mockFs.readdirSync.mockImplementation((dirPath: fs.PathLike) => {
+      const p = dirPath.toString();
+      if (p.endsWith('/projects')) return ['-Users-ryan-dev-claude-warmer'] as unknown as fs.Dirent[];
+      if (p.includes('-Users-ryan-dev-claude-warmer')) return ['abc.jsonl'] as unknown as fs.Dirent[];
+      if (p.endsWith('/sessions')) return ['999.json'] as unknown as fs.Dirent[];
+      return [] as unknown as fs.Dirent[];
+    });
+    mockFs.readFileSync.mockImplementation((filePath: fs.PathOrFileDescriptor) => {
+      const p = filePath.toString();
+      if (p.endsWith('abc.jsonl')) {
+        return JSON.stringify({
+          type: 'assistant',
+          message: {
+            role: 'assistant',
+            model: 'claude-opus-4-6',
+            usage: { input_tokens: 0, cache_read_input_tokens: 1000, cache_creation_input_tokens: 0, output_tokens: 1 },
+          },
+          timestamp: new Date().toISOString(),
+        });
+      }
+      if (p.endsWith('999.json')) {
+        return JSON.stringify({
+          pid: 999,
+          sessionId: 'some-other-session',
+          cwd: '/Users/ryan/dev/claude-warmer',
+          startedAt: Date.now(),
+          kind: 'interactive',
+        });
+      }
+      return '';
+    });
+    vi.spyOn(process, 'kill').mockImplementation(() => {
+      throw new Error('ESRCH');
+    });
+
+    const sessions = discoverSessions();
+    expect(sessions).toHaveLength(1);
+    // Authoritative cwd from sibling PID file — preserves the `-` in
+    // `claude-warmer`, unlike the naive decode which would produce
+    // `/Users/ryan/dev/claude/warmer`.
+    expect(sessions[0].cwd).toBe('/Users/ryan/dev/claude-warmer');
   });
 
   it('handles corrupt PID JSON files gracefully', () => {
@@ -361,7 +577,8 @@ describe('discoverSessions', () => {
     });
 
     const sessions = discoverSessions();
-    // Should still discover the session, just without PID info
+    // Should still discover the session; corrupt PID file means no sibling
+    // lookup, and the decoded path fails stat(), so cwd is empty.
     expect(sessions).toHaveLength(1);
     expect(sessions[0].cwd).toBe('');
   });
@@ -894,6 +1111,40 @@ describe('discoverSessions', () => {
     const sessions = discoverSessions();
     expect(sessions).toHaveLength(1);
     expect(sessions[0].sessionId).toBe('has-cache');
+  });
+
+  it('accepts an injected Fs and reads through it (DI smoke test)', () => {
+    mockOs.homedir.mockReturnValue('/mock-home');
+    const jsonl = JSON.stringify({
+      type: 'assistant',
+      message: {
+        role: 'assistant',
+        model: 'claude-sonnet-4-6',
+        usage: {
+          input_tokens: 0,
+          cache_read_input_tokens: 7777,
+          cache_creation_input_tokens: 0,
+          output_tokens: 1,
+        },
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+    const fake = memoryFs({
+      dirs: ['/mock-home/.claude/projects', '/mock-home/.claude/projects/proj'],
+      files: {
+        '/mock-home/.claude/projects/proj/abc.jsonl': jsonl,
+      },
+      entries: {
+        '/mock-home/.claude/projects': ['proj'],
+        '/mock-home/.claude/projects/proj': ['abc.jsonl'],
+      },
+    });
+
+    const sessions = discoverSessions(fake);
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].sessionId).toBe('abc');
+    expect(sessions[0].cacheReadTokens).toBe(7777);
   });
 
   it('initializes warmCostUsd with estimated warm cost', () => {
