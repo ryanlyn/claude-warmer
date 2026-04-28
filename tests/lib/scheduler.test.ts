@@ -17,7 +17,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     cacheWriteTokens: 1000,
     expiryCostUsd: 0.3,
     selected: true,
-    warmingStatus: 'idle',
+    warmStatus: 'idle',
     warmCostUsd: 0,
     warmCount: 0,
     nextWarmAt: null,
@@ -40,7 +40,7 @@ describe('Scheduler', () => {
       costUsd: 0.015,
       error: null,
     });
-    scheduler = new Scheduler(mockWarmFn, 55);
+    scheduler = new Scheduler(mockWarmFn);
   });
 
   afterEach(() => {
@@ -51,7 +51,7 @@ describe('Scheduler', () => {
   describe('bootstrap', () => {
     it('schedules a warm session within its valid window', () => {
       const session = makeSession({ lastAssistantTimestamp: Date.now() - 10 * 60 * 1000 });
-      const result = scheduler.bootstrap([session]);
+      const result = scheduler.bootstrap([session], 55);
 
       expect(result).toHaveLength(1);
       const nextWarm = result[0].nextWarmAt!;
@@ -65,7 +65,7 @@ describe('Scheduler', () => {
         lastAssistantTimestamp: Date.now() - 2 * 60 * 60 * 1000, // 2h ago
         isWarm: false,
       });
-      const result = scheduler.bootstrap([session]);
+      const result = scheduler.bootstrap([session], 55);
 
       expect(result).toHaveLength(1);
       expect(result[0].nextWarmAt!).toBeLessThanOrEqual(Date.now());
@@ -73,45 +73,49 @@ describe('Scheduler', () => {
 
     it('schedules live sessions normally', () => {
       const session = makeSession({ isLive: true });
-      const result = scheduler.bootstrap([session]);
+      const result = scheduler.bootstrap([session], 55);
       expect(result).toHaveLength(1);
       expect(result[0].nextWarmAt).not.toBeNull();
     });
 
     it('skips deselected sessions', () => {
       const session = makeSession({ selected: false });
-      const result = scheduler.bootstrap([session]);
+      const result = scheduler.bootstrap([session], 55);
       expect(result).toHaveLength(1);
       expect(result[0].nextWarmAt).toBeNull();
     });
   });
 
-  describe('tick', () => {
-    it('warms a session that is due and clamps nextWarmAt by the safety margin', async () => {
+  describe('runDueWarmups', () => {
+    it('returns warm patches for a session that is due and clamps nextWarmAt by the safety margin', async () => {
       const session = makeSession({ nextWarmAt: Date.now() - 1000 });
-      const updated = await scheduler.tick([session], 'Reply with only the word OK');
+      const patches = await scheduler.runDueWarmups([session], 'Reply with only the word OK', 55);
 
       expect(mockWarmFn).toHaveBeenCalledWith('test-id', 'Reply with only the word OK', '/test', 'test-project');
-      expect(updated[0].warmCount).toBe(1);
-      expect(updated[0].warmingStatus).toBe('success');
-      expect(updated[0].lastWarmedAt).toBeGreaterThan(0);
+      expect(patches[0]).toMatchObject({ type: 'started', sessionId: 'test-id' });
+      expect(patches[1]).toMatchObject({ type: 'succeeded', sessionId: 'test-id' });
+      const success = patches[1];
+      expect(success.type).toBe('succeeded');
+      if (success.type !== 'succeeded') throw new Error('expected success patch');
+      expect(success.warmedAt).toBeGreaterThan(0);
       // Scheduler was constructed with intervalMinutes=55 == WARM_THRESHOLD_MS,
       // which exceeds the (WARM_THRESHOLD_MS - SAFETY_MARGIN_MS) cap, so the
       // next warm is clamped to that cap rather than the literal 55min.
       const cap = WARM_THRESHOLD_MS - SAFETY_MARGIN_MS;
-      expect(updated[0].nextWarmAt).toBe(updated[0].lastWarmedAt! + cap);
+      expect(success.nextWarmAt).toBe(success.warmedAt + cap);
     });
 
     it('does not warm a session that is not yet due', async () => {
       const session = makeSession({ nextWarmAt: Date.now() + 60_000 });
-      await scheduler.tick([session], 'Reply with only the word OK');
+      const patches = await scheduler.runDueWarmups([session], 'Reply with only the word OK', 55);
       expect(mockWarmFn).not.toHaveBeenCalled();
+      expect(patches).toEqual([]);
     });
 
-    it('returns the same sessions reference when nothing was warmed', async () => {
+    it('returns no patches when nothing was warmed', async () => {
       const sessions = [makeSession({ nextWarmAt: Date.now() + 60_000 })];
-      const result = await scheduler.tick(sessions, 'Reply OK');
-      expect(result).toBe(sessions);
+      const result = await scheduler.runDueWarmups(sessions, 'Reply OK', 55);
+      expect(result).toEqual([]);
     });
 
     it('falls back to session model when result model is empty', async () => {
@@ -124,13 +128,13 @@ describe('Scheduler', () => {
       });
 
       const session = makeSession({ nextWarmAt: Date.now() - 1000, model: 'claude-sonnet-4-6' });
-      const updated = await scheduler.tick([session], 'Reply with only the word OK');
+      const patches = await scheduler.runDueWarmups([session], 'Reply with only the word OK', 55);
 
-      expect(updated[0].warmingStatus).toBe('success');
-      expect(updated[0].model).toBe('claude-sonnet-4-6');
+      const success = patches.find((p) => p.type === 'succeeded');
+      expect(success).toMatchObject({ type: 'succeeded', model: 'claude-sonnet-4-6' });
     });
 
-    it('marks session as error on warm failure and uses bounded retry backoff', async () => {
+    it('returns an error patch on warm failure and uses bounded retry backoff', async () => {
       mockWarmFn.mockResolvedValueOnce({
         sessionId: 'test-id',
         usage: { inputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, outputTokens: 0 },
@@ -141,15 +145,19 @@ describe('Scheduler', () => {
 
       const session = makeSession({ nextWarmAt: Date.now() - 1000 });
       const beforeTick = Date.now();
-      const updated = await scheduler.tick([session], 'Reply with only the word OK');
+      const patches = await scheduler.runDueWarmups([session], 'Reply with only the word OK', 55);
 
-      expect(updated[0].warmingStatus).toBe('error');
-      expect(updated[0].lastWarmError).toBe('CLI failed');
-      expect(updated[0].consecutiveErrors).toBe(1);
+      const error = patches.find((p) => p.type === 'failed');
+      expect(error).toMatchObject({
+        type: 'failed',
+        error: 'CLI failed',
+        consecutiveErrors: 1,
+      });
+      if (!error || error.type !== 'failed') throw new Error('expected failed patch');
       // First-failure retry should land at warmTime + BACKOFF_SCHEDULE_MS[0]
       // (30s), NOT warmTime + intervalMs (55min).
-      expect(updated[0].nextWarmAt).toBeGreaterThanOrEqual(beforeTick + BACKOFF_SCHEDULE_MS[0]);
-      expect(updated[0].nextWarmAt).toBeLessThan(beforeTick + 60_000);
+      expect(error.nextWarmAt).toBeGreaterThanOrEqual(beforeTick + BACKOFF_SCHEDULE_MS[0]);
+      expect(error.nextWarmAt).toBeLessThan(beforeTick + 60_000);
     });
 
     it('increments consecutiveErrors across repeated failures and resets on success', async () => {
@@ -173,20 +181,18 @@ describe('Scheduler', () => {
 
       let session = makeSession({ nextWarmAt: Date.now() - 1000 });
 
-      const after1 = (await scheduler.tick([session], 'OK'))[0];
-      expect(after1.consecutiveErrors).toBe(1);
-      // Use the second backoff slot (index 1) on the next attempt.
-      const expectedSecondBackoff = after1.nextWarmAt!;
-      expect(expectedSecondBackoff).toBe(after1.nextWarmAt!);
+      const failed1 = (await scheduler.runDueWarmups([session], 'OK', 55)).find((p) => p.type === 'failed');
+      expect(failed1).toMatchObject({ type: 'failed', consecutiveErrors: 1 });
+      if (!failed1 || failed1.type !== 'failed') throw new Error('expected first failure');
 
-      session = { ...after1, nextWarmAt: Date.now() - 1000 };
-      const after2 = (await scheduler.tick([session], 'OK'))[0];
-      expect(after2.consecutiveErrors).toBe(2);
+      session = { ...session, consecutiveErrors: failed1.consecutiveErrors, nextWarmAt: Date.now() - 1000 };
+      const failed2 = (await scheduler.runDueWarmups([session], 'OK', 55)).find((p) => p.type === 'failed');
+      expect(failed2).toMatchObject({ type: 'failed', consecutiveErrors: 2 });
+      if (!failed2 || failed2.type !== 'failed') throw new Error('expected second failure');
 
-      session = { ...after2, nextWarmAt: Date.now() - 1000 };
-      const after3 = (await scheduler.tick([session], 'OK'))[0];
-      expect(after3.warmingStatus).toBe('success');
-      expect(after3.consecutiveErrors).toBe(0);
+      session = { ...session, consecutiveErrors: failed2.consecutiveErrors, nextWarmAt: Date.now() - 1000 };
+      const success = (await scheduler.runDueWarmups([session], 'OK', 55)).find((p) => p.type === 'succeeded');
+      expect(success).toMatchObject({ type: 'succeeded' });
     });
 
     it('warms sessions sequentially, not in parallel', async () => {
@@ -211,17 +217,26 @@ describe('Scheduler', () => {
         makeSession({ sessionId: 'b', nextWarmAt: Date.now() - 500 }),
       ];
 
-      const tickPromise = scheduler.tick(sessions, 'OK');
+      const tickPromise = scheduler.runDueWarmups(sessions, 'OK', 55);
       await vi.advanceTimersByTimeAsync(100);
       await tickPromise;
       expect(maxConcurrent).toBe(1);
     });
+
+    it('uses the interval passed to each run rather than constructor-owned interval state', async () => {
+      const session = makeSession({ nextWarmAt: Date.now() - 1000 });
+      const patches = await scheduler.runDueWarmups([session], 'OK', 10);
+      const success = patches.find((p) => p.type === 'succeeded');
+      expect(success).toMatchObject({ type: 'succeeded' });
+      if (!success || success.type !== 'succeeded') throw new Error('expected success patch');
+      expect(success.nextWarmAt).toBe(success.warmedAt + 10 * 60 * 1000);
+    });
   });
 
-  describe('addSession', () => {
+  describe('scheduleFirstWarm', () => {
     it('schedules a warm session within remaining window', () => {
       const session = makeSession({ nextWarmAt: null });
-      const updated = scheduler.addSession(session);
+      const updated = scheduler.scheduleFirstWarm(session, 55);
       const windowEnd = session.lastAssistantTimestamp + WARM_THRESHOLD_MS;
       expect(updated.nextWarmAt!).toBeGreaterThanOrEqual(Date.now());
       expect(updated.nextWarmAt!).toBeLessThanOrEqual(windowEnd);
@@ -233,15 +248,15 @@ describe('Scheduler', () => {
         isWarm: false,
         nextWarmAt: null,
       });
-      const updated = scheduler.addSession(session);
+      const updated = scheduler.scheduleFirstWarm(session, 55);
       expect(updated.nextWarmAt!).toBeLessThanOrEqual(Date.now());
     });
   });
 
-  describe('removeSession', () => {
+  describe('unscheduleWarm', () => {
     it('clears nextWarmAt', () => {
       const session = makeSession({ nextWarmAt: Date.now() + 60_000 });
-      const updated = scheduler.removeSession(session);
+      const updated = scheduler.unscheduleWarm(session);
       expect(updated.nextWarmAt).toBeNull();
     });
   });

@@ -45,7 +45,7 @@ function makeTwoSessions() {
       cacheWriteTokens: 5000,
       expiryCostUsd: 1.05,
       selected: true,
-      warmingStatus: 'idle' as const,
+      warmStatus: 'idle' as const,
       warmCostUsd: 0.05,
       warmCount: 0,
       nextWarmAt: null,
@@ -65,7 +65,7 @@ function makeTwoSessions() {
       cacheWriteTokens: 0,
       expiryCostUsd: 0.3,
       selected: false,
-      warmingStatus: 'idle' as const,
+      warmStatus: 'idle' as const,
       warmCostUsd: 0.3,
       warmCount: 0,
       nextWarmAt: null,
@@ -89,7 +89,7 @@ function defaultSession() {
     cacheWriteTokens: 5000,
     expiryCostUsd: 1.05,
     selected: true,
-    warmingStatus: 'idle' as const,
+    warmStatus: 'idle' as const,
     warmCostUsd: 0.05,
     warmCount: 0,
     nextWarmAt: null,
@@ -127,7 +127,7 @@ describe('App', () => {
     const { lastFrame, unmount } = render(
       <App intervalMinutes={55} warmPrompt="Reply 'ok'" deps={{ fs: undefined as never }} />,
     );
-    // `fs: undefined` is the explicit-but-falsy case — exercises the
+    // `fs: undefined` is the explicit-but-falsy case - exercises the
     // `deps.fs !== undefined` strict-undefined check branch.
     expect(lastFrame()!).toContain('Claude Warmer');
     unmount();
@@ -370,11 +370,11 @@ describe('App', () => {
     expect(lastFrame()!).toContain('paused');
   });
 
-  it('warming toggle off resets sessions with warmingStatus warming to paused', async () => {
+  it('warming toggle off resets sessions with warmStatus warming to paused', async () => {
     mockSessions.discoverSessions.mockReturnValue([
       {
         ...defaultSession(),
-        warmingStatus: 'warming',
+        warmStatus: 'warming',
       },
     ]);
 

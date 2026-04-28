@@ -1,74 +1,127 @@
-import type { Session } from './types.js';
+import type { Session, WarmPatch } from './types.js';
+import { calcExpiryCost } from './pricing.js';
 
 // Pure state machine for the session list. Effects in `app.tsx` compute
-// the result of any Scheduler/clock/random call FIRST and then dispatch a
-// data-only event so the reducer stays side-effect-free.
+// Scheduler/clock/random/fs results first, then dispatch data-only events so
+// the reducer stays side-effect-free.
 
 export interface AppSessionState {
   sessions: Session[];
-  warming: boolean;
+  warmingEnabled: boolean;
+  warmingRunId: number;
   intervalMinutes: number;
   warmPrompt: string;
 }
 
 export type AppEvent =
-  | { type: 'REFRESH_MERGE'; fresh: Session[] }
-  | { type: 'TICK_RESULT'; updated: Session[] }
-  | { type: 'REPLACE_SESSION'; sessionId: string; next: Session }
-  | { type: 'REPLACE_ALL'; next: Session[] }
-  | { type: 'WARMING_ON'; bootstrapped: Session[] }
-  | { type: 'WARMING_OFF' }
-  | { type: 'SET_INTERVAL'; minutes: number }
-  | { type: 'SET_PROMPT'; prompt: string };
+  | { type: 'DISCOVERY_SNAPSHOT_RECEIVED'; fresh: Session[] }
+  | { type: 'WARM_PATCHES_RECEIVED'; runId: number; patches: WarmPatch[] }
+  | { type: 'SESSION_REPLACED'; sessionId: string; next: Session }
+  | { type: 'SESSION_LIST_REPLACED'; next: Session[] }
+  | { type: 'WARMING_STARTED'; runId: number; bootstrapped: Session[] }
+  | { type: 'WARMING_STOPPED'; runId: number }
+  | { type: 'INTERVAL_CHANGED'; minutes: number }
+  | { type: 'PROMPT_CHANGED'; prompt: string };
 
 export function initialState(intervalMinutes: number, warmPrompt: string): AppSessionState {
   return {
     sessions: [],
-    warming: false,
+    warmingEnabled: false,
+    warmingRunId: 0,
     intervalMinutes,
     warmPrompt,
   };
 }
 
-// Preserves discovery's `selected: isWarm` for sessions new to the merge so
+function preserveRuntimeFields(discovered: Session, existing: Session): Session {
+  return {
+    ...discovered,
+    selected: existing.selected,
+    warmStatus: existing.warmStatus,
+    warmCostUsd: existing.warmCostUsd,
+    warmCount: existing.warmCount,
+    nextWarmAt: existing.nextWarmAt,
+    lastWarmedAt: existing.lastWarmedAt,
+    lastWarmError: existing.lastWarmError,
+    consecutiveErrors: existing.consecutiveErrors,
+  };
+}
+
+// Preserve discovery's `selected: isWarm` for sessions new to the snapshot so
 // auto-selected warm sessions reach the scheduler on the next refresh.
-function mergeRefresh(prev: Session[], fresh: Session[]): Session[] {
+function mergeDiscoverySnapshot(prev: Session[], fresh: Session[]): Session[] {
   const prevById = new Map(prev.map((s) => [s.sessionId, s]));
   let changed = prev.length !== fresh.length;
   const merged = fresh.map((s, i) => {
     const existing = prevById.get(s.sessionId);
-    const next: Session = existing
-      ? {
-          ...s,
-          selected: existing.selected,
-          warmingStatus: existing.warmingStatus,
-          warmCostUsd: existing.warmCostUsd,
-          warmCount: existing.warmCount,
-          nextWarmAt: existing.nextWarmAt,
-          lastWarmedAt: existing.lastWarmedAt,
-          lastWarmError: existing.lastWarmError,
-          consecutiveErrors: existing.consecutiveErrors,
-        }
-      : s;
+    const next = existing ? preserveRuntimeFields(s, existing) : s;
     if (!changed && !sessionsShallowEqual(prev[i], next)) changed = true;
     return next;
   });
   return changed ? merged : prev;
 }
 
-// Merges tick results by sessionId so a refresh that added a session during
-// a long warm survives the tick result; sessions removed by the user are dropped.
-function mergeTickResults(latest: Session[], updated: Session[]): Session[] {
-  if (updated === latest) return latest;
-  const updatedById = new Map(updated.map((s) => [s.sessionId, s]));
+function applyWarmPatch(session: Session, patch: WarmPatch): Session {
+  switch (patch.type) {
+    case 'started':
+      return session.selected ? { ...session, warmStatus: 'warming' } : session;
+    case 'succeeded': {
+      const model = patch.model || session.model;
+      return {
+        ...session,
+        warmStatus: 'success',
+        warmCostUsd: patch.costUsd,
+        warmCount: session.warmCount + 1,
+        nextWarmAt: session.selected ? patch.nextWarmAt : null,
+        lastWarmedAt: patch.warmedAt,
+        lastWarmError: null,
+        consecutiveErrors: 0,
+        cacheReadTokens: patch.usage.cacheReadInputTokens,
+        cacheWriteTokens: patch.usage.cacheCreationInputTokens,
+        expiryCostUsd: calcExpiryCost(patch.usage.cacheReadInputTokens + patch.usage.cacheCreationInputTokens, model),
+        isWarm: true,
+        model,
+      };
+    }
+    case 'failed':
+      return {
+        ...session,
+        warmStatus: 'error',
+        lastWarmError: patch.error,
+        consecutiveErrors: patch.consecutiveErrors,
+        nextWarmAt: session.selected ? patch.nextWarmAt : null,
+      };
+  }
+}
+
+// Applies warm-owned facts to the latest session list. Discovery-owned fields
+// stay with the latest refresh, sessions added during a long warm survive, and
+// patches for sessions no longer present are ignored.
+function applyWarmPatches(latest: Session[], patches: WarmPatch[]): Session[] {
+  if (patches.length === 0) return latest;
+
+  const patchesById = new Map<string, WarmPatch[]>();
+  for (const patch of patches) {
+    const sessionPatches = patchesById.get(patch.sessionId) ?? [];
+    sessionPatches.push(patch);
+    patchesById.set(patch.sessionId, sessionPatches);
+  }
+
   let changed = false;
-  const merged = latest.map((s) => {
-    const tickVersion = updatedById.get(s.sessionId);
-    if (!tickVersion) return s;
-    if (sessionsShallowEqual(s, tickVersion)) return s;
+  const merged = latest.map((session) => {
+    const sessionPatches = patchesById.get(session.sessionId);
+    if (!sessionPatches) return session;
+
+    let next = session;
+    for (const patch of sessionPatches) {
+      next = applyWarmPatch(next, patch);
+    }
+
+    if (sessionsShallowEqual(session, next)) return session;
     changed = true;
-    return tickVersion;
+    return next;
   });
+
   return changed ? merged : latest;
 }
 
@@ -85,7 +138,7 @@ const SESSION_KEYS: ReadonlyArray<keyof Session> = [
   'cacheWriteTokens',
   'expiryCostUsd',
   'selected',
-  'warmingStatus',
+  'warmStatus',
   'warmCostUsd',
   'warmCount',
   'nextWarmAt',
@@ -100,41 +153,43 @@ function sessionsShallowEqual(a: Session, b: Session): boolean {
 
 export function appReducer(state: AppSessionState, event: AppEvent): AppSessionState {
   switch (event.type) {
-    case 'REFRESH_MERGE': {
-      const next = mergeRefresh(state.sessions, event.fresh);
+    case 'DISCOVERY_SNAPSHOT_RECEIVED': {
+      const next = mergeDiscoverySnapshot(state.sessions, event.fresh);
       return next === state.sessions ? state : { ...state, sessions: next };
     }
-    case 'TICK_RESULT': {
-      const next = mergeTickResults(state.sessions, event.updated);
+    case 'WARM_PATCHES_RECEIVED': {
+      if (!state.warmingEnabled || event.runId !== state.warmingRunId) return state;
+      const next = applyWarmPatches(state.sessions, event.patches);
       return next === state.sessions ? state : { ...state, sessions: next };
     }
-    case 'REPLACE_SESSION': {
+    case 'SESSION_REPLACED': {
       const idx = state.sessions.findIndex((s) => s.sessionId === event.sessionId);
       if (idx === -1) return state;
       const next = [...state.sessions];
       next[idx] = event.next;
       return { ...state, sessions: next };
     }
-    case 'REPLACE_ALL':
+    case 'SESSION_LIST_REPLACED':
       return { ...state, sessions: event.next };
-    case 'WARMING_ON':
-      return { ...state, warming: true, sessions: event.bootstrapped };
-    case 'WARMING_OFF':
+    case 'WARMING_STARTED':
+      return { ...state, warmingEnabled: true, warmingRunId: event.runId, sessions: event.bootstrapped };
+    case 'WARMING_STOPPED':
       return {
         ...state,
-        warming: false,
+        warmingEnabled: false,
+        warmingRunId: event.runId,
         sessions: state.sessions.map((s) => ({
           ...s,
           nextWarmAt: null,
-          warmingStatus: s.warmingStatus === 'warming' ? 'idle' : s.warmingStatus,
+          warmStatus: s.warmStatus === 'warming' ? 'idle' : s.warmStatus,
         })),
       };
-    case 'SET_INTERVAL':
+    case 'INTERVAL_CHANGED':
       return { ...state, intervalMinutes: event.minutes };
-    case 'SET_PROMPT':
+    case 'PROMPT_CHANGED':
       return { ...state, warmPrompt: event.prompt };
   }
 }
 
 // Exported for direct unit testing of the merge semantics.
-export { mergeRefresh, mergeTickResults };
+export { applyWarmPatches, mergeDiscoverySnapshot };

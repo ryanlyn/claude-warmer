@@ -142,7 +142,7 @@ export interface FakeWarmerOptions {
   /** ms to simulate the warm taking before resolving. Default 0. */
   durationMs?: number;
   /**
-   * Optional per-call override — lets a test simulate a transient error
+   * Optional per-call override - lets a test simulate a transient error
    * or latency spike without rewriting the whole fake.
    */
   result?: (call: WarmCall) => WarmResult | Promise<WarmResult>;
@@ -152,7 +152,7 @@ export interface FakeWarmerOptions {
  * Build a warmFn compatible with `src/lib/warmer.ts#warmSession` but
  * implemented in-process. Records every call, honors an injected clock for
  * timestamps, and can inject errors or delays per call. Does NOT spawn a
- * real PTY or real `claude` binary — the equivalent round-trip is covered
+ * real PTY or real `claude` binary - the equivalent round-trip is covered
  * by `tests/lib/fake-claude.test.ts`.
  */
 export function makeFakeWarmer(opts: FakeWarmerOptions): WarmFn {

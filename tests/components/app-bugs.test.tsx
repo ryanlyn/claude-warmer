@@ -34,7 +34,7 @@ function coldSelectedSession(id: string, name: string) {
     cacheWriteTokens: 0,
     expiryCostUsd: 0,
     selected: true,
-    warmingStatus: 'idle' as const,
+    warmStatus: 'idle' as const,
     warmCostUsd: 0,
     warmCount: 0,
     nextWarmAt: null,
@@ -49,7 +49,7 @@ beforeEach(() => {
 
 describe('App bug reproducers', () => {
   /**
-   * H2: During the `await schedulerRef.current.tick(snapshot, ...)` that can
+   * H2: During the `await schedulerRef.current.runDueWarmups(snapshot, ...)` that can
    * run for minutes, the 30s refresh interval fires and writes fresh
    * sessions via `setSessions(fresh...)`. When tick resolves, app.tsx
    * line 194 calls `setSessions(updated)` using the pre-tick snapshot,

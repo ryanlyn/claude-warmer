@@ -20,6 +20,6 @@ export function copyToClipboard(text: string): void {
       execSync('xclip -selection clipboard', { input: text });
     }
   } catch {
-    // No clipboard provider available. Swallow — this is best-effort UX.
+    // No clipboard provider available. Swallow - this is best-effort UX.
   }
 }

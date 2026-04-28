@@ -2,14 +2,20 @@ import React from 'react';
 import { Box, Text } from 'ink';
 
 interface HeaderProps {
-  warming: boolean;
+  warmingEnabled: boolean;
   intervalMinutes: number;
   warmPrompt: string;
   refreshIntervalSec: number;
   lastRefreshed: number | null;
 }
 
-export function Header({ warming, intervalMinutes, warmPrompt, refreshIntervalSec, lastRefreshed }: HeaderProps) {
+export function Header({
+  warmingEnabled,
+  intervalMinutes,
+  warmPrompt,
+  refreshIntervalSec,
+  lastRefreshed,
+}: HeaderProps) {
   const refreshLabel = lastRefreshed
     ? new Date(lastRefreshed).toLocaleTimeString('en-US', {
         hour12: false,
@@ -26,7 +32,7 @@ export function Header({ warming, intervalMinutes, warmPrompt, refreshIntervalSe
           Claude Warmer
         </Text>
         <Text> </Text>
-        {warming ? (
+        {warmingEnabled ? (
           <Text bold color="green">
             active
           </Text>

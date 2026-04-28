@@ -8,7 +8,7 @@ interface SessionRowProps {
   session: Session;
   highlighted: boolean;
   layout: ColumnLayout;
-  warmingActive: boolean;
+  warmingEnabled: boolean;
 }
 
 function formatTokens(n: number): string {
@@ -25,8 +25,8 @@ function formatCountdown(nextWarmAt: number | null): string {
   return `${minutes}m`;
 }
 
-function StatusBadge({ session, warmingActive }: { session: Session; warmingActive: boolean }) {
-  const isActivelyWarming = warmingActive && session.selected && session.isWarm;
+function StatusBadge({ session, warmingEnabled }: { session: Session; warmingEnabled: boolean }) {
+  const isActivelyWarming = warmingEnabled && session.selected && session.isWarm;
   const liveColor = isActivelyWarming ? 'green' : 'yellow';
   const liveIndicator = session.isLive ? <Text color={liveColor}>●</Text> : <Text> </Text>;
   if (session.isWarm) {
@@ -53,12 +53,12 @@ function formatCwd(cwd: string, width: number): string {
   return short;
 }
 
-export function SessionRow({ session, highlighted, layout, warmingActive }: SessionRowProps) {
+export function SessionRow({ session, highlighted, layout, warmingEnabled }: SessionRowProps) {
   const cachedTotal = session.cacheReadTokens + session.cacheWriteTokens;
   const selectChar = session.selected ? '>' : ' ';
   const bgColor = highlighted ? 'gray' : undefined;
   const isCold = !session.isWarm && !session.isLive;
-  const isActivelyWarming = warmingActive && session.selected && session.isWarm;
+  const isActivelyWarming = warmingEnabled && session.selected && session.isWarm;
   const rowColor = isActivelyWarming ? 'green' : undefined;
   const isDim = isActivelyWarming ? false : isCold || !session.selected;
 
@@ -75,7 +75,7 @@ export function SessionRow({ session, highlighted, layout, warmingActive }: Sess
         </Text>
       </Box>
       <Box width={layout.statusW}>
-        <StatusBadge session={session} warmingActive={warmingActive} />
+        <StatusBadge session={session} warmingEnabled={warmingEnabled} />
       </Box>
       <Box width={layout.idW}>
         <Text color={rowColor} dimColor={isDim}>

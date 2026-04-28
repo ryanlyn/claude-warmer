@@ -9,7 +9,7 @@ interface SessionTableProps {
   highlightedIndex: number;
   scrollOffset: number;
   layout: ColumnLayout;
-  warmingActive: boolean;
+  warmingEnabled: boolean;
 }
 
 function ColumnHeader({ label, width, align }: { label: string; width: number; align?: 'right' }) {
@@ -22,7 +22,7 @@ function ColumnHeader({ label, width, align }: { label: string; width: number; a
   );
 }
 
-export function SessionTable({ sessions, highlightedIndex, scrollOffset, layout, warmingActive }: SessionTableProps) {
+export function SessionTable({ sessions, highlightedIndex, scrollOffset, layout, warmingEnabled }: SessionTableProps) {
   const { stdout } = useStdout();
   const visibleRows = Math.min((stdout?.rows ?? 24) - 6, 20);
   const visibleSessions = sessions.slice(scrollOffset, scrollOffset + visibleRows);
@@ -57,7 +57,7 @@ export function SessionTable({ sessions, highlightedIndex, scrollOffset, layout,
             session={session}
             highlighted={scrollOffset + index === highlightedIndex}
             layout={layout}
-            warmingActive={warmingActive}
+            warmingEnabled={warmingEnabled}
           />
         ))
       )}

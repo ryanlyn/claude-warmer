@@ -5,7 +5,7 @@ export interface SessionUsage {
   outputTokens: number;
 }
 
-export type WarmingStatus = 'idle' | 'warming' | 'success' | 'error';
+export type WarmStatus = 'idle' | 'warming' | 'success' | 'error';
 
 export interface Session {
   sessionId: string;
@@ -20,7 +20,7 @@ export interface Session {
   cacheWriteTokens: number;
   expiryCostUsd: number;
   selected: boolean;
-  warmingStatus: WarmingStatus;
+  warmStatus: WarmStatus;
   warmCostUsd: number;
   warmCount: number;
   nextWarmAt: number | null;
@@ -28,9 +28,31 @@ export interface Session {
   lastWarmError: string | null;
   // Number of consecutive warm failures since the last success. Optional so
   // discovery code paths (sessions.ts) and existing fixtures don't have to
-  // be updated in lockstep — readers MUST treat undefined as 0.
+  // be updated in lockstep - readers MUST treat undefined as 0.
   consecutiveErrors?: number;
 }
+
+export type DiscoverySessionFields = Pick<
+  Session,
+  | 'sessionId'
+  | 'name'
+  | 'projectDir'
+  | 'cwd'
+  | 'model'
+  | 'lastAssistantTimestamp'
+  | 'isWarm'
+  | 'isLive'
+  | 'cacheReadTokens'
+  | 'cacheWriteTokens'
+  | 'expiryCostUsd'
+>;
+
+export type SessionUserFields = Pick<Session, 'selected'>;
+
+export type WarmRuntimeFields = Pick<
+  Session,
+  'warmStatus' | 'warmCostUsd' | 'warmCount' | 'nextWarmAt' | 'lastWarmedAt' | 'lastWarmError' | 'consecutiveErrors'
+>;
 
 export interface WarmResult {
   sessionId: string;
@@ -41,6 +63,30 @@ export interface WarmResult {
 }
 
 export type WarmFn = (sessionId: string, prompt: string, cwd?: string, projectDir?: string) => Promise<WarmResult>;
+
+export type WarmPatch =
+  | {
+      type: 'started';
+      sessionId: string;
+      startedAt: number;
+    }
+  | {
+      type: 'succeeded';
+      sessionId: string;
+      warmedAt: number;
+      nextWarmAt: number;
+      usage: SessionUsage;
+      model: string;
+      costUsd: number;
+    }
+  | {
+      type: 'failed';
+      sessionId: string;
+      failedAt: number;
+      nextWarmAt: number;
+      error: string;
+      consecutiveErrors: number;
+    };
 
 export const WARM_THRESHOLD_MS = 55 * 60 * 1000;
 

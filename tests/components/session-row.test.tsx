@@ -23,7 +23,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     cacheWriteTokens: 5000,
     expiryCostUsd: 1.05,
     selected: true,
-    warmingStatus: 'idle',
+    warmStatus: 'idle',
     warmCostUsd: 0.05,
     warmCount: 2,
     nextWarmAt: Date.now() + 12 * 60 * 1000,
@@ -36,14 +36,14 @@ function makeSession(overrides: Partial<Session> = {}): Session {
 describe('SessionRow', () => {
   it('renders session name', () => {
     const { lastFrame } = render(
-      <SessionRow session={makeSession()} highlighted={false} layout={layout} warmingActive={false} />,
+      <SessionRow session={makeSession()} highlighted={false} layout={layout} warmingEnabled={false} />,
     );
     expect(lastFrame()!).toContain('Test Session');
   });
 
   it('shows warm badge for warm sessions', () => {
     const { lastFrame } = render(
-      <SessionRow session={makeSession({ isWarm: true })} highlighted={false} layout={layout} warmingActive={false} />,
+      <SessionRow session={makeSession({ isWarm: true })} highlighted={false} layout={layout} warmingEnabled={false} />,
     );
     expect(lastFrame()!).toContain('[w]');
   });
@@ -54,7 +54,7 @@ describe('SessionRow', () => {
         session={makeSession({ isWarm: false, isLive: false })}
         highlighted={false}
         layout={layout}
-        warmingActive={false}
+        warmingEnabled={false}
       />,
     );
     expect(lastFrame()!).toContain('[c]');
@@ -66,7 +66,7 @@ describe('SessionRow', () => {
         session={makeSession({ isLive: true, isWarm: true })}
         highlighted={false}
         layout={layout}
-        warmingActive={false}
+        warmingEnabled={false}
       />,
     );
     const frame = lastFrame()!;
@@ -80,7 +80,7 @@ describe('SessionRow', () => {
         session={makeSession({ isLive: false, isWarm: true })}
         highlighted={false}
         layout={layout}
-        warmingActive={false}
+        warmingEnabled={false}
       />,
     );
     const frame = lastFrame()!;
@@ -91,14 +91,14 @@ describe('SessionRow', () => {
   it('shows model short name at wide widths', () => {
     const wide = computeLayout(140);
     const { lastFrame } = render(
-      <SessionRow session={makeSession()} highlighted={false} layout={wide} warmingActive={false} />,
+      <SessionRow session={makeSession()} highlighted={false} layout={wide} warmingEnabled={false} />,
     );
     expect(lastFrame()!).toContain('opus');
   });
 
   it('shows formatted cached tokens', () => {
     const { lastFrame } = render(
-      <SessionRow session={makeSession()} highlighted={false} layout={layout} warmingActive={false} />,
+      <SessionRow session={makeSession()} highlighted={false} layout={layout} warmingEnabled={false} />,
     );
     expect(lastFrame()!).toContain('100k + 5k');
   });
@@ -109,7 +109,7 @@ describe('SessionRow', () => {
         session={makeSession({ cacheReadTokens: 500, cacheWriteTokens: 200 })}
         highlighted={false}
         layout={layout}
-        warmingActive={false}
+        warmingEnabled={false}
       />,
     );
     expect(lastFrame()!).toContain('500 + 200');
@@ -121,7 +121,7 @@ describe('SessionRow', () => {
         session={makeSession({ cacheReadTokens: 2_500_000, cacheWriteTokens: 100_000 })}
         highlighted={false}
         layout={layout}
-        warmingActive={false}
+        warmingEnabled={false}
       />,
     );
     expect(lastFrame()!).toContain('2.5M + 100k');
@@ -130,7 +130,7 @@ describe('SessionRow', () => {
   it('shows empty cwd when not set', () => {
     const wide = computeLayout(100);
     const { lastFrame } = render(
-      <SessionRow session={makeSession({ cwd: '' })} highlighted={false} layout={wide} warmingActive={false} />,
+      <SessionRow session={makeSession({ cwd: '' })} highlighted={false} layout={wide} warmingEnabled={false} />,
     );
     expect(lastFrame()!).toContain('Test Session');
   });
@@ -138,7 +138,7 @@ describe('SessionRow', () => {
   it('shows expiry cost for warm sessions at wide widths', () => {
     const wide = computeLayout(140);
     const { lastFrame } = render(
-      <SessionRow session={makeSession({ isWarm: true })} highlighted={false} layout={wide} warmingActive={false} />,
+      <SessionRow session={makeSession({ isWarm: true })} highlighted={false} layout={wide} warmingEnabled={false} />,
     );
     expect(lastFrame()!).toContain('$1.05');
   });
@@ -147,7 +147,7 @@ describe('SessionRow', () => {
     const wide = computeLayout(140);
     const session = makeSession({ isWarm: false, isLive: false });
     const { lastFrame } = render(
-      <SessionRow session={session} highlighted={false} layout={wide} warmingActive={false} />,
+      <SessionRow session={session} highlighted={false} layout={wide} warmingEnabled={false} />,
     );
     const frame = lastFrame()!;
     expect(frame).toContain('-');
@@ -160,7 +160,7 @@ describe('SessionRow', () => {
         session={makeSession({ isLive: true, isWarm: true })}
         highlighted={false}
         layout={wide}
-        warmingActive={false}
+        warmingEnabled={false}
       />,
     );
     expect(lastFrame()!).toContain('$1.05');
@@ -168,7 +168,7 @@ describe('SessionRow', () => {
 
   it('shows warm cost for selected sessions', () => {
     const { lastFrame } = render(
-      <SessionRow session={makeSession()} highlighted={false} layout={layout} warmingActive={false} />,
+      <SessionRow session={makeSession()} highlighted={false} layout={layout} warmingEnabled={false} />,
     );
     expect(lastFrame()!).toContain('$0.05');
   });
@@ -176,7 +176,7 @@ describe('SessionRow', () => {
   it('shows dash for warm cost on unselected sessions', () => {
     const session = makeSession({ selected: false });
     const { lastFrame } = render(
-      <SessionRow session={session} highlighted={false} layout={layout} warmingActive={false} />,
+      <SessionRow session={session} highlighted={false} layout={layout} warmingEnabled={false} />,
     );
     const frame = lastFrame()!;
     expect(frame).toContain('-');
@@ -184,7 +184,7 @@ describe('SessionRow', () => {
 
   it('shows warm count', () => {
     const { lastFrame } = render(
-      <SessionRow session={makeSession({ warmCount: 5 })} highlighted={false} layout={layout} warmingActive={false} />,
+      <SessionRow session={makeSession({ warmCount: 5 })} highlighted={false} layout={layout} warmingEnabled={false} />,
     );
     expect(lastFrame()!).toContain('5');
   });
@@ -196,7 +196,7 @@ describe('SessionRow', () => {
         session={makeSession({ cwd: '/Users/test/dev/my-project' })}
         highlighted={false}
         layout={wide}
-        warmingActive={false}
+        warmingEnabled={false}
       />,
     );
     expect(lastFrame()!).toContain('my-project');
@@ -209,7 +209,7 @@ describe('SessionRow', () => {
         session={makeSession({ cwd: '/Users/test/dev/project/' })}
         highlighted={false}
         layout={wide}
-        warmingActive={false}
+        warmingEnabled={false}
       />,
     );
     expect(lastFrame()!).toContain('project');
@@ -218,7 +218,7 @@ describe('SessionRow', () => {
   it('handles root path cwd', () => {
     const wide = computeLayout(100);
     const { lastFrame } = render(
-      <SessionRow session={makeSession({ cwd: '/' })} highlighted={false} layout={wide} warmingActive={false} />,
+      <SessionRow session={makeSession({ cwd: '/' })} highlighted={false} layout={wide} warmingEnabled={false} />,
     );
     expect(lastFrame()!).toContain('Test Session');
   });
@@ -230,7 +230,7 @@ describe('SessionRow', () => {
         session={makeSession({ cwd: '/Users/test/dev/very-long-directory-name-here' })}
         highlighted={false}
         layout={wide}
-        warmingActive={false}
+        warmingEnabled={false}
       />,
     );
     const frame = lastFrame()!;
@@ -243,7 +243,7 @@ describe('SessionRow', () => {
         session={makeSession({ nextWarmAt: null })}
         highlighted={false}
         layout={layout}
-        warmingActive={false}
+        warmingEnabled={false}
       />,
     );
     expect(lastFrame()!).toContain('-');
@@ -252,7 +252,7 @@ describe('SessionRow', () => {
   it('shows next warm countdown', () => {
     const session = makeSession({ nextWarmAt: Date.now() + 12 * 60 * 1000 });
     const { lastFrame } = render(
-      <SessionRow session={session} highlighted={false} layout={layout} warmingActive={false} />,
+      <SessionRow session={session} highlighted={false} layout={layout} warmingEnabled={false} />,
     );
     expect(lastFrame()!).toContain('12m');
   });
@@ -260,7 +260,7 @@ describe('SessionRow', () => {
   it('shows first 8 chars of session ID', () => {
     const session = makeSession({ sessionId: 'abcdefgh-1234-5678' });
     const { lastFrame } = render(
-      <SessionRow session={session} highlighted={false} layout={layout} warmingActive={false} />,
+      <SessionRow session={session} highlighted={false} layout={layout} warmingEnabled={false} />,
     );
     expect(lastFrame()!).toContain('abcdefgh');
   });
@@ -268,7 +268,7 @@ describe('SessionRow', () => {
   it('shows now for expired countdown', () => {
     const session = makeSession({ nextWarmAt: Date.now() - 1000 });
     const { lastFrame } = render(
-      <SessionRow session={session} highlighted={false} layout={layout} warmingActive={false} />,
+      <SessionRow session={session} highlighted={false} layout={layout} warmingEnabled={false} />,
     );
     expect(lastFrame()!).toContain('now');
   });
@@ -276,7 +276,7 @@ describe('SessionRow', () => {
   it('shows green badge when warming is active and session is selected and warm', () => {
     const session = makeSession({ isWarm: true, selected: true });
     const { lastFrame } = render(
-      <SessionRow session={session} highlighted={false} layout={layout} warmingActive={true} />,
+      <SessionRow session={session} highlighted={false} layout={layout} warmingEnabled={true} />,
     );
     const frame = lastFrame()!;
     expect(frame).toContain('[w]');
@@ -285,7 +285,7 @@ describe('SessionRow', () => {
   it('shows yellow badge when session is warm but warming is not active', () => {
     const session = makeSession({ isWarm: true, selected: true });
     const { lastFrame } = render(
-      <SessionRow session={session} highlighted={false} layout={layout} warmingActive={false} />,
+      <SessionRow session={session} highlighted={false} layout={layout} warmingEnabled={false} />,
     );
     const frame = lastFrame()!;
     expect(frame).toContain('[w]');
@@ -294,7 +294,7 @@ describe('SessionRow', () => {
   it('shows yellow badge when warming is active but session is not selected', () => {
     const session = makeSession({ isWarm: true, selected: false });
     const { lastFrame } = render(
-      <SessionRow session={session} highlighted={false} layout={layout} warmingActive={true} />,
+      <SessionRow session={session} highlighted={false} layout={layout} warmingEnabled={true} />,
     );
     const frame = lastFrame()!;
     expect(frame).toContain('[w]');
@@ -303,7 +303,7 @@ describe('SessionRow', () => {
   it('shows cold badge for cold sessions even if warming active', () => {
     const session = makeSession({ isWarm: false, isLive: false, selected: true });
     const { lastFrame } = render(
-      <SessionRow session={session} highlighted={false} layout={layout} warmingActive={true} />,
+      <SessionRow session={session} highlighted={false} layout={layout} warmingEnabled={true} />,
     );
     const frame = lastFrame()!;
     expect(frame).toContain('[c]');
@@ -319,7 +319,7 @@ describe('SessionRow', () => {
       model: 'claude-opus-4-6',
     });
     const { lastFrame } = render(
-      <SessionRow session={session} highlighted={false} layout={layout} warmingActive={false} />,
+      <SessionRow session={session} highlighted={false} layout={layout} warmingEnabled={false} />,
     );
     const frame = lastFrame()!;
     // 105000 tokens * $5 * 2 / 1M = $1.05
@@ -336,7 +336,7 @@ describe('SessionRow', () => {
       model: 'claude-opus-4-6',
     });
     const { lastFrame } = render(
-      <SessionRow session={session} highlighted={false} layout={layout} warmingActive={false} />,
+      <SessionRow session={session} highlighted={false} layout={layout} warmingEnabled={false} />,
     );
     const frame = lastFrame()!;
     // 105000 tokens * $5 * 2 / 1M = $1.05
@@ -346,7 +346,7 @@ describe('SessionRow', () => {
   it('uses green text for actively warming rows', () => {
     const session = makeSession({ isWarm: true, selected: true });
     const { lastFrame } = render(
-      <SessionRow session={session} highlighted={false} layout={layout} warmingActive={true} />,
+      <SessionRow session={session} highlighted={false} layout={layout} warmingEnabled={true} />,
     );
     // We can't easily test color in ink-testing-library but we verify it renders without error
     expect(lastFrame()!).toContain('Test Session');
@@ -355,7 +355,7 @@ describe('SessionRow', () => {
   it('uses dim text for cold sessions', () => {
     const session = makeSession({ isWarm: false, isLive: false, selected: false });
     const { lastFrame } = render(
-      <SessionRow session={session} highlighted={false} layout={layout} warmingActive={false} />,
+      <SessionRow session={session} highlighted={false} layout={layout} warmingEnabled={false} />,
     );
     expect(lastFrame()!).toContain('Test Session');
   });

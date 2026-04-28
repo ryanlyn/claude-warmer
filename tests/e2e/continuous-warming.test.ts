@@ -13,11 +13,11 @@
  *
  * Mutations applied during the run:
  *   - 30s refresh (auto, fires every 4s)
- *   - Space        — toggle the highlighted session's selection (off, then on)
- *   - 'a'          — select-active (re-selects all live/warm)
- *   - Down/Up      — navigation, mutates highlightedIndex/scrollOffset
- *   - 'p' + text   — change the warm prompt mid-run
- *   - Enter        — toggle warming off, then back on
+ *   - Space        - toggle the highlighted session's selection (off, then on)
+ *   - 'a'          - select-active (re-selects all live/warm)
+ *   - Down/Up      - navigation, mutates highlightedIndex/scrollOffset
+ *   - 'p' + text   - change the warm prompt mid-run
+ *   - Enter        - toggle warming off, then back on
  *
  * Cost: ~6-8 small warm prompts (pennies). Pollutes ~/.claude with one
  * test session.
@@ -246,7 +246,7 @@ describe('e2e: continuous warming of selected session under TUI mutations', () =
       await new Promise((r) => setTimeout(r, 18_000));
       recordCheckpoint('after-select-all/none/all');
 
-      // Navigate down then up — exercises useInput's arrow handling and
+      // Navigate down then up - exercises useInput's arrow handling and
       // scroll-clamp effects. Even with one session it touches the same
       // code path and shouldn't drop the session from state.
       stdin.write('\x1B[B'); // down
@@ -264,7 +264,7 @@ describe('e2e: continuous warming of selected session under TUI mutations', () =
       await new Promise((r) => setTimeout(r, 18_000));
       recordCheckpoint('after-prompt-change');
 
-      // Toggle warming off then on — exercises stop() + bootstrap().
+      // Toggle warming off then on - exercises stop() + bootstrap().
       stdin.write('\r');
       await new Promise((r) => setTimeout(r, 800));
       stdin.write('\r');
@@ -293,7 +293,7 @@ describe('e2e: continuous warming of selected session under TUI mutations', () =
         ).toBeGreaterThanOrEqual(checkpoints[i - 1].jsonlSize);
       }
 
-      // 2. Final size strictly greater than initial — proves warming
+      // 2. Final size strictly greater than initial - proves warming
       //    actually happened, not just that the file was preserved.
       const finalSize = checkpoints[checkpoints.length - 1].jsonlSize;
       expect(finalSize).toBeGreaterThan(initialSize);
@@ -307,7 +307,7 @@ describe('e2e: continuous warming of selected session under TUI mutations', () =
       });
       expect(advancingCheckpoints.length).toBeGreaterThanOrEqual(3);
 
-      // 4. Total growth should be at least 5KB — a single successful warm
+      // 4. Total growth should be at least 5KB - a single successful warm
       //    appends ~2-5KB; we expect 4+ across the run.
       expect(finalSize - initialSize).toBeGreaterThanOrEqual(5_000);
     },

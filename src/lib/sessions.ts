@@ -31,7 +31,7 @@ interface PidEntry {
  *
  * Worst case is O(2^n) candidates for n hyphens in the encoded form, but
  * in practice the filesystem prunes branches aggressively (most candidate
- * prefixes don't exist). Results are memoized at module level — see
+ * prefixes don't exist). Results are memoized at module level - see
  * `smartDecodeCache`.
  */
 export function findProjectCwd(fs: Fs, encoded: string): string | null {
@@ -77,11 +77,11 @@ const smartDecodeCache = new Map<string, string | null>();
  * authoritative because Claude Code records them, weaker ones are
  * heuristics that can be wrong on hyphenated paths.
  *   1. The session's own PID file (authoritative when the session is live).
- *   2. Any sibling PID file from the same project (authoritative — the
+ *   2. Any sibling PID file from the same project (authoritative - the
  *      encoded projectDir round-trips with the recorded cwd).
  *   3. Filesystem-aware greedy decode via `findProjectCwd`.
  *   4. Empty string (warmer falls back to its own cwd, which usually fails
- *      — but better than spawning into a non-existent directory).
+ *      - but better than spawning into a non-existent directory).
  */
 function resolveSessionCwd(
   fs: Fs,
@@ -249,7 +249,7 @@ export function discoverSessions(fs: Fs = realFs, clock: Clock = realClock): Ses
         cacheWriteTokens: parsed.cacheWriteTokens,
         expiryCostUsd: calcExpiryCost(cachedTokens, model),
         selected: isWarm,
-        warmingStatus: 'idle',
+        warmStatus: 'idle',
         warmCostUsd: 0,
         warmCount: 0,
         nextWarmAt: null,

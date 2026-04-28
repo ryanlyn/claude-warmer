@@ -18,7 +18,7 @@ beforeEach(() => {
 
 /**
  * Minimal in-memory Fs fake keyed by absolute path. Exists alongside the
- * `vi.mock('node:fs')` tests to demonstrate the DI surface — tests that want
+ * `vi.mock('node:fs')` tests to demonstrate the DI surface - tests that want
  * typed, explicit filesystem state can supply one of these instead of
  * configuring `vi.mocked(fs)` per call.
  */
@@ -445,7 +445,7 @@ describe('discoverSessions', () => {
       }
       return '';
     });
-    // Stat the decoded path — succeeds, so the fallback is used.
+    // Stat the decoded path - succeeds, so the fallback is used.
     mockFs.statSync.mockReturnValue({ isDirectory: () => true } as fs.Stats);
 
     const sessions = discoverSessions();
@@ -525,7 +525,7 @@ describe('discoverSessions', () => {
 
     const sessions = discoverSessions();
     expect(sessions).toHaveLength(1);
-    // Authoritative cwd from sibling PID file — preserves the `-` in
+    // Authoritative cwd from sibling PID file - preserves the `-` in
     // `claude-warmer`, unlike the naive decode which would produce
     // `/Users/test/dev/claude/warmer`.
     expect(sessions[0].cwd).toBe('/Users/test/dev/claude-warmer');

@@ -1,12 +1,12 @@
 /**
  * Verifies what `claude --resume <sid>` actually does when another `claude`
- * process is currently holding that session — the H5 hypothesis underlying
+ * process is currently holding that session - the H5 hypothesis underlying
  * the fd23508e investigation. Spawns a real PTY-backed `claude` session,
  * creates a second `claude --resume` against the same id and leaves it
  * idle (mirroring the fd23508e shape: one cmux-launched session held open
  * for 11h while the user was away), then runs the warmer's actual
  * `warmSession` codepath three times at a 5-second interval and records
- * what really happens — exit modes, JSONL deltas, any forked session
+ * what really happens - exit modes, JSONL deltas, any forked session
  * artifacts, and how it diverges from the fake-claude `fork-session`
  * simulation.
  *
@@ -86,7 +86,7 @@ function findForkedSessions(originalId: string, knownIds: Set<string>): string[]
     if (knownIds.has(id)) continue;
     candidates.push(id);
   }
-  // Also surface any new sessions that don't mention the original — they
+  // Also surface any new sessions that don't mention the original - they
   // could still be forks under a different bookkeeping convention.
   return candidates.filter((id) => id !== originalId);
 }

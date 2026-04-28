@@ -27,7 +27,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     cacheWriteTokens: 1000,
     expiryCostUsd: 0.3,
     selected: true,
-    warmingStatus: 'idle',
+    warmStatus: 'idle',
     warmCostUsd: 0,
     warmCount: 0,
     nextWarmAt: null,
@@ -79,7 +79,7 @@ describe('Scheduler bug reproducers', () => {
       await new Promise((r) => setTimeout(r, WARM_DURATION_MS));
       return okResult(sessionId);
     });
-    const scheduler = new Scheduler(warmFn as unknown as Parameters<typeof Scheduler>[0], 55);
+    const scheduler = new Scheduler(warmFn as unknown as ConstructorParameters<typeof Scheduler>[0]);
 
     // After the previous tick's successful warm, nextWarmAt was clamped to
     // warmTime + cap. So the cache anchor for each session sits `cap` ago.
@@ -92,7 +92,7 @@ describe('Scheduler bug reproducers', () => {
       }),
     );
 
-    const tickPromise = scheduler.tick(sessions, 'Reply ok');
+    const tickPromise = scheduler.runDueWarmups(sessions, 'Reply ok', 55);
     await vi.advanceTimersByTimeAsync(WARM_DURATION_MS * 5 + 100);
     await tickPromise;
 
@@ -116,9 +116,9 @@ describe('Scheduler bug reproducers', () => {
     // Force Math.random to the worst-case (1.0) to pick the very end of window
     const randSpy = vi.spyOn(Math, 'random').mockReturnValue(0.999999);
 
-    const scheduler = new Scheduler(vi.fn() as unknown as Parameters<typeof Scheduler>[0], 55);
+    const scheduler = new Scheduler(vi.fn() as unknown as ConstructorParameters<typeof Scheduler>[0]);
     const session = makeSession({ lastAssistantTimestamp: anchor });
-    const [bootstrapped] = scheduler.bootstrap([session]);
+    const [bootstrapped] = scheduler.bootstrap([session], 55);
 
     const cacheExpiresAt = anchor + CACHE_TTL_MS;
     const warmWindowEnd = anchor + WARM_THRESHOLD_MS; // 55min
@@ -149,7 +149,7 @@ describe('Scheduler bug reproducers', () => {
         error: 'pty spawn failed',
       };
     });
-    const scheduler = new Scheduler(warmFn as unknown as Parameters<typeof Scheduler>[0], 55);
+    const scheduler = new Scheduler(warmFn as unknown as ConstructorParameters<typeof Scheduler>[0]);
 
     const lastSuccessfulWarm = anchor - 10 * 60 * 1000;
     const cacheExpiresAt = lastSuccessfulWarm + CACHE_TTL_MS;
@@ -161,15 +161,16 @@ describe('Scheduler bug reproducers', () => {
       nextWarmAt: anchor,
     });
 
-    const tickPromise = scheduler.tick([session], 'Reply ok');
+    const tickPromise = scheduler.runDueWarmups([session], 'Reply ok', 55);
     await vi.advanceTimersByTimeAsync(10_100);
-    const [updated] = await tickPromise;
+    const patches = await tickPromise;
+    const failed = patches.find((p) => p.type === 'failed');
 
-    expect(updated.warmingStatus).toBe('error');
-    expect(updated.consecutiveErrors).toBe(1);
+    expect(failed).toMatchObject({ type: 'failed', consecutiveErrors: 1 });
+    if (!failed || failed.type !== 'failed') throw new Error('expected failed patch');
 
     // warmTime ~= anchor + 10s, retry at warmTime + BACKOFF_SCHEDULE_MS[0] (30s).
-    const retryAt = updated.nextWarmAt!;
+    const retryAt = failed.nextWarmAt;
     const expectedRetry = anchor + 10_000 + BACKOFF_SCHEDULE_MS[0];
     expect(retryAt).toBe(expectedRetry);
     // Comfortably inside the cache TTL.

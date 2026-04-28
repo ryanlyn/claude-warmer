@@ -106,7 +106,7 @@ async function main(): Promise<void> {
   const latencyMs = parseInt(process.env.FAKE_CLAUDE_LATENCY_MS || '100', 10);
   const projectDir = getProjectDir();
 
-  // REPL banner — warmer waits for data to settle before sending the prompt.
+  // REPL banner - warmer waits for data to settle before sending the prompt.
   process.stdout.write('fake-claude v0.0.0 (test stand-in)\n> ');
 
   const rl = readline.createInterface({ input: process.stdin, terminal: false });

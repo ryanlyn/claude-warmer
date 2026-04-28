@@ -71,7 +71,7 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
     ...init,
     sessions: discoverSessions(fs, clock),
   }));
-  const { sessions, warming, intervalMinutes, warmPrompt } = state;
+  const { sessions, warmingEnabled, intervalMinutes, warmPrompt } = state;
 
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [editingField, setEditingField] = useState<EditingField>(null);
@@ -87,9 +87,10 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
   // want one Scheduler per mount, hence the construct-on-first-read pattern.
   const schedulerRef = useRef<Scheduler>(null!);
   if (!schedulerRef.current) {
-    schedulerRef.current = new Scheduler(warmFn, initialInterval, random, clock);
+    schedulerRef.current = new Scheduler(warmFn, random, clock);
   }
   const tickingRef = useRef(false);
+  const runIdRef = useRef(0);
 
   /* v8 ignore next */
   const cols = stdout?.columns ?? 120;
@@ -97,17 +98,21 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
   const visibleRows = Math.min((stdout?.rows ?? 24) - 6, 20);
 
   // Periodic session refresh. When warming is active, sessions newly seen
-  // AND auto-selected by discovery get scheduled immediately via addSession
-  // so the next tick picks them up; otherwise they would render selected
-  // but with nextWarmAt:null and never be warmed.
+  // AND auto-selected by discovery get their first warm scheduled immediately
+  // so the next tick picks them up; otherwise they would render selected but
+  // with nextWarmAt:null and never be warmed.
   useEffect(() => {
     const id = clock.setInterval(() => {
       const raw = discoverSessions(fs, clock);
       const known = new Set(stateRef.current.sessions.map((s) => s.sessionId));
-      const fresh = stateRef.current.warming
-        ? raw.map((s) => (!known.has(s.sessionId) && s.selected ? schedulerRef.current.addSession(s) : s))
+      const fresh = stateRef.current.warmingEnabled
+        ? raw.map((s) =>
+            !known.has(s.sessionId) && s.selected
+              ? schedulerRef.current.scheduleFirstWarm(s, stateRef.current.intervalMinutes)
+              : s,
+          )
         : raw;
-      dispatch({ type: 'REFRESH_MERGE', fresh });
+      dispatch({ type: 'DISCOVERY_SNAPSHOT_RECEIVED', fresh });
       setLastRefreshed(clock.now());
     }, refreshIntervalMs);
     return () => clock.clearInterval(id);
@@ -139,10 +144,12 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
     if (!session) return;
     const newSelected = !session.selected;
     let next: Session = { ...session, selected: newSelected };
-    if (current.warming) {
-      next = newSelected ? schedulerRef.current.addSession(next) : schedulerRef.current.removeSession(next);
+    if (current.warmingEnabled) {
+      next = newSelected
+        ? schedulerRef.current.scheduleFirstWarm(next, current.intervalMinutes)
+        : schedulerRef.current.unscheduleWarm(next);
     }
-    dispatch({ type: 'REPLACE_SESSION', sessionId: session.sessionId, next });
+    dispatch({ type: 'SESSION_REPLACED', sessionId: session.sessionId, next });
   }, []);
 
   const selectActive = useCallback(() => {
@@ -150,31 +157,35 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
     const next = current.sessions.map((s) => {
       const shouldSelect = s.isLive || s.isWarm;
       let updated: Session = { ...s, selected: shouldSelect };
-      if (current.warming) {
-        updated = shouldSelect ? schedulerRef.current.addSession(updated) : schedulerRef.current.removeSession(updated);
+      if (current.warmingEnabled) {
+        updated = shouldSelect
+          ? schedulerRef.current.scheduleFirstWarm(updated, current.intervalMinutes)
+          : schedulerRef.current.unscheduleWarm(updated);
       }
       return updated;
     });
-    dispatch({ type: 'REPLACE_ALL', next });
+    dispatch({ type: 'SESSION_LIST_REPLACED', next });
   }, []);
 
   const selectNone = useCallback(() => {
     const current = stateRef.current;
     const next = current.sessions.map((s) => {
       const updated: Session = { ...s, selected: false };
-      return current.warming ? schedulerRef.current.removeSession(updated) : updated;
+      return current.warmingEnabled ? schedulerRef.current.unscheduleWarm(updated) : updated;
     });
-    dispatch({ type: 'REPLACE_ALL', next });
+    dispatch({ type: 'SESSION_LIST_REPLACED', next });
   }, []);
 
   const toggleWarming = useCallback(() => {
     const current = stateRef.current;
-    if (!current.warming) {
-      const bootstrapped = schedulerRef.current.bootstrap(current.sessions);
-      dispatch({ type: 'WARMING_ON', bootstrapped });
+    if (!current.warmingEnabled) {
+      const runId = ++runIdRef.current;
+      const bootstrapped = schedulerRef.current.bootstrap(current.sessions, current.intervalMinutes);
+      dispatch({ type: 'WARMING_STARTED', runId, bootstrapped });
     } else {
+      const runId = ++runIdRef.current;
       schedulerRef.current.stop();
-      dispatch({ type: 'WARMING_OFF' });
+      dispatch({ type: 'WARMING_STOPPED', runId });
     }
   }, []);
 
@@ -188,24 +199,26 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
   }, [highlightedIndex]);
 
   useEffect(() => {
-    if (!warming) return;
+    if (!warmingEnabled) return;
 
     const id = clock.setInterval(async () => {
       /* v8 ignore next */
       if (tickingRef.current) return;
       tickingRef.current = true;
       try {
-        const snapshot = stateRef.current.sessions;
-        const updated = await schedulerRef.current.tick(snapshot, stateRef.current.warmPrompt);
+        const current = stateRef.current;
+        const snapshot = current.sessions;
+        const runId = current.warmingRunId;
+        const patches = await schedulerRef.current.runDueWarmups(snapshot, current.warmPrompt, current.intervalMinutes);
         /* v8 ignore next */
-        dispatch({ type: 'TICK_RESULT', updated });
+        dispatch({ type: 'WARM_PATCHES_RECEIVED', runId, patches });
       } finally {
         tickingRef.current = false;
       }
     }, tickIntervalMs);
 
     return () => clock.clearInterval(id);
-  }, [warming, clock, tickIntervalMs]);
+  }, [warmingEnabled, clock, tickIntervalMs]);
 
   useInput(
     (input, key) => {
@@ -283,31 +296,27 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
 
   const handlePromptSubmit = useCallback((value: string) => {
     if (value.trim()) {
-      dispatch({ type: 'SET_PROMPT', prompt: value.trim() });
+      dispatch({ type: 'PROMPT_CHANGED', prompt: value.trim() });
     }
     setEditingField(null);
   }, []);
 
-  const handleIntervalSubmit = useCallback(
-    (value: string) => {
-      const parsed = parseInt(value, 10);
-      if (!isNaN(parsed) && parsed >= 1 && parsed <= 59) {
-        dispatch({ type: 'SET_INTERVAL', minutes: parsed });
-        schedulerRef.current = new Scheduler(warmFn, parsed, random, clock);
-        if (stateRef.current.warming) {
-          const bootstrapped = schedulerRef.current.bootstrap(stateRef.current.sessions);
-          dispatch({ type: 'REPLACE_ALL', next: bootstrapped });
-        }
+  const handleIntervalSubmit = useCallback((value: string) => {
+    const parsed = parseInt(value, 10);
+    if (!isNaN(parsed) && parsed >= 1 && parsed <= 59) {
+      dispatch({ type: 'INTERVAL_CHANGED', minutes: parsed });
+      if (stateRef.current.warmingEnabled) {
+        const bootstrapped = schedulerRef.current.bootstrap(stateRef.current.sessions, parsed);
+        dispatch({ type: 'SESSION_LIST_REPLACED', next: bootstrapped });
       }
-      setEditingField(null);
-    },
-    [clock, random, warmFn],
-  );
+    }
+    setEditingField(null);
+  }, []);
 
   return (
     <Box flexDirection="column">
       <Header
-        warming={warming}
+        warmingEnabled={warmingEnabled}
         intervalMinutes={intervalMinutes}
         warmPrompt={warmPrompt}
         refreshIntervalSec={REFRESH_INTERVAL_SEC}
@@ -318,7 +327,7 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
         highlightedIndex={highlightedIndex}
         scrollOffset={scrollOffset}
         layout={layout}
-        warmingActive={warming}
+        warmingEnabled={warmingEnabled}
       />
       {editingField === 'prompt' && (
         <Box>

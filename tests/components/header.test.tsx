@@ -7,7 +7,7 @@ describe('Header', () => {
   it('shows app name', () => {
     const { lastFrame } = render(
       <Header
-        warming={false}
+        warmingEnabled={false}
         intervalMinutes={55}
         warmPrompt="Reply with only the word OK"
         refreshIntervalSec={30}
@@ -20,7 +20,7 @@ describe('Header', () => {
   it('shows paused state', () => {
     const { lastFrame } = render(
       <Header
-        warming={false}
+        warmingEnabled={false}
         intervalMinutes={55}
         warmPrompt="Reply with only the word OK"
         refreshIntervalSec={30}
@@ -33,7 +33,7 @@ describe('Header', () => {
   it('shows active state', () => {
     const { lastFrame } = render(
       <Header
-        warming={true}
+        warmingEnabled={true}
         intervalMinutes={55}
         warmPrompt="Reply with only the word OK"
         refreshIntervalSec={30}
@@ -46,7 +46,7 @@ describe('Header', () => {
   it('shows configured interval', () => {
     const { lastFrame } = render(
       <Header
-        warming={false}
+        warmingEnabled={false}
         intervalMinutes={30}
         warmPrompt="Reply with only the word OK"
         refreshIntervalSec={30}
@@ -59,7 +59,7 @@ describe('Header', () => {
   it('shows warm prompt', () => {
     const { lastFrame } = render(
       <Header
-        warming={false}
+        warmingEnabled={false}
         intervalMinutes={55}
         warmPrompt="Say hi"
         refreshIntervalSec={30}
@@ -71,7 +71,13 @@ describe('Header', () => {
 
   it('handles null lastRefreshed', () => {
     const { lastFrame } = render(
-      <Header warming={false} intervalMinutes={55} warmPrompt="ok" refreshIntervalSec={30} lastRefreshed={null} />,
+      <Header
+        warmingEnabled={false}
+        intervalMinutes={55}
+        warmPrompt="ok"
+        refreshIntervalSec={30}
+        lastRefreshed={null}
+      />,
     );
     expect(lastFrame()!).toContain('Claude Warmer');
   });
@@ -79,7 +85,7 @@ describe('Header', () => {
   it('shows color legend', () => {
     const { lastFrame } = render(
       <Header
-        warming={false}
+        warmingEnabled={false}
         intervalMinutes={55}
         warmPrompt="Reply with only the word OK"
         refreshIntervalSec={30}

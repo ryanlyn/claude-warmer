@@ -17,7 +17,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     cacheWriteTokens: 0,
     expiryCostUsd: 0,
     selected: true,
-    warmingStatus: 'idle',
+    warmStatus: 'idle',
     warmCostUsd: 0,
     warmCount: 0,
     nextWarmAt: null,
@@ -39,7 +39,7 @@ function seededRng(values: number[]): () => number {
   };
 }
 
-// 55min default interval — matches the WARM_THRESHOLD_MS so the cap is the
+// 55min default interval - matches the WARM_THRESHOLD_MS so the cap is the
 // cache TTL window in nearly every test below.
 const DEFAULT_INTERVAL_MS = 55 * 60_000;
 

@@ -240,7 +240,7 @@ export function warmSession(
 }
 
 /**
- * Curry a `warmSession` bound to a fixed deps bag — useful to pass into
+ * Curry a `warmSession` bound to a fixed deps bag - useful to pass into
  * `new Scheduler(warmFn, ...)` when the caller wants an injected fs/spawn/clock
  * applied to every invocation.
  */

@@ -12,7 +12,7 @@ import { WARM_THRESHOLD_MS, SAFETY_MARGIN_MS, BACKOFF_SCHEDULE_MS } from './type
 // nearer of (a) the cache-anchor TTL boundary and (b) one user-chosen
 // `intervalMs` from now. The intervalMs cap matters when the user picks a
 // short interval (e.g. `-i 1`) to validate the warmer end-to-end against an
-// already-warm session — without it the first warm could fire up to 55min
+// already-warm session - without it the first warm could fire up to 55min
 // later, regardless of what `--interval` says, because the cache TTL window
 // dominates.
 export function nextFirstWarm(session: Session, now: number, rng: () => number, intervalMs: number): number {

@@ -8,7 +8,7 @@ import * as pty from 'node-pty';
  * public boundaries. Production code uses `realDeps()`; tests can supply
  * in-memory fakes for Fs, a virtual clock, a deterministic RNG, and a
  * PTY-free Spawn implementation. This replaces module-level `vi.mock(...)`
- * incantations with explicit, typed fakes — the call sites that read files,
+ * incantations with explicit, typed fakes - the call sites that read files,
  * spawn processes, or ask the clock are visible in each function signature.
  *
  * Existing tests that use `vi.useFakeTimers()` and `vi.mock('node:fs')`

@@ -7,6 +7,7 @@ import { discoverSessions } from '../src/lib/sessions.js';
 import { warmSession } from '../src/lib/warmer.js';
 import { Scheduler } from '../src/lib/scheduler.js';
 import { calcEstimatedWarmCost } from '../src/lib/pricing.js';
+import { applyWarmPatches } from '../src/lib/app-reducer.js';
 import type { Session } from '../src/lib/types.js';
 
 const INTERVAL_MINUTES = 1; // 1 min for testing
@@ -25,13 +26,13 @@ function printSession(s: Session) {
     `  ${s.isLive ? '●' : ' '} [${s.isWarm ? 'warm' : 'cold'}] ${s.sessionId.slice(0, 8)} ${s.name.slice(0, 40).padEnd(40)} ` +
     `cached=${cached.toLocaleString().padStart(8)} warmCount=${s.warmCount} ` +
     `warmCost=$${warmCost.toFixed(4)} next=${s.nextWarmAt ? new Date(s.nextWarmAt).toISOString() : '-'} ` +
-    `status=${s.warmingStatus} lastErr=${s.lastWarmError || '-'}`
+    `status=${s.warmStatus} lastErr=${s.lastWarmError || '-'}`,
   );
 }
 
 async function main() {
   log('Discovering sessions...');
-  const allSessions = discoverSessions('claude-sonnet-4-6');
+  const allSessions = discoverSessions();
   log(`Found ${allSessions.length} sessions total`);
 
   // Pick 2 live sessions for testing (they have valid session IDs)
@@ -50,8 +51,8 @@ async function main() {
 
   // Bootstrap - force all sessions due immediately for testing
   log(`\nBootstrapping scheduler (interval=${INTERVAL_MINUTES}min)...`);
-  const scheduler = new Scheduler(warmSession, INTERVAL_MINUTES);
-  let sessions = scheduler.bootstrap(testSessions);
+  const scheduler = new Scheduler(warmSession);
+  let sessions = scheduler.bootstrap(testSessions, INTERVAL_MINUTES);
   // Override nextWarmAt to now so they warm on first tick
   sessions = sessions.map(s => ({ ...s, nextWarmAt: s.selected ? Date.now() : null }));
   log('After bootstrap (forced to now):');
@@ -74,7 +75,8 @@ async function main() {
     log(`Running tick...`);
     const before = sessions.map(s => ({ id: s.sessionId, warmCount: s.warmCount, cached: s.cacheReadTokens + s.cacheWriteTokens }));
 
-    sessions = await scheduler.tick(sessions, WARM_PROMPT);
+    const patches = await scheduler.runDueWarmups(sessions, WARM_PROMPT, INTERVAL_MINUTES);
+    sessions = applyWarmPatches(sessions, patches);
 
     log('After tick:');
     sessions.forEach(printSession);
@@ -90,7 +92,7 @@ async function main() {
       if (newCached !== prev.cached) {
         log(`  CHECK: ${s.sessionId.slice(0, 8)} cached ${prev.cached.toLocaleString()} -> ${newCached.toLocaleString()}`);
       }
-      if (s.warmingStatus === 'error') {
+      if (s.warmStatus === 'error') {
         log(`  ERROR: ${s.sessionId.slice(0, 8)} failed: ${s.lastWarmError}`);
       }
     }
@@ -101,7 +103,9 @@ async function main() {
   let allPassed = true;
   for (const s of sessions) {
     const cached = s.cacheReadTokens + s.cacheWriteTokens;
-    log(`Session ${s.sessionId.slice(0, 8)}: warmCount=${s.warmCount} cached=${cached.toLocaleString()} status=${s.warmingStatus} nextWarmAt=${s.nextWarmAt ? 'set' : 'null'}`);
+    log(
+      `Session ${s.sessionId.slice(0, 8)}: warmCount=${s.warmCount} cached=${cached.toLocaleString()} status=${s.warmStatus} nextWarmAt=${s.nextWarmAt ? 'set' : 'null'}`,
+    );
 
     if (s.warmCount === 0 && s.selected) {
       log(`  FAIL: warmCount is still 0 for a selected session`);
@@ -111,7 +115,7 @@ async function main() {
       log(`  FAIL: nextWarmAt is null for a selected session after warming`);
       allPassed = false;
     }
-    if (s.warmingStatus === 'error') {
+    if (s.warmStatus === 'error') {
       log(`  FAIL: session has error status: ${s.lastWarmError}`);
       allPassed = false;
     }

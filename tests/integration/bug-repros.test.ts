@@ -30,7 +30,7 @@ describe('integration: documented bug reproducers', () => {
   it('B1: a session created mid-run is eventually warmed', async () => {
     // User launches the TUI with one existing warm session, turns warming on,
     // then starts a NEW claude session a few minutes later. With B1 fixed,
-    // mergeRefresh preserves discovery's `selected: isWarm`, so the new
+    // mergeDiscoverySnapshot preserves discovery's `selected: isWarm`, so the new
     // session joins the schedule and gets warmed during the 2-hour window.
     const t0 = new Date('2026-04-20T12:00:00Z');
     vi.setSystemTime(t0);
@@ -53,7 +53,7 @@ describe('integration: documented bug reproducers', () => {
     );
     await vi.advanceTimersByTimeAsync(100);
 
-    stdin.write('\r'); // start warming — only `existing` is currently selected
+    stdin.write('\r'); // start warming - only `existing` is currently selected
     await vi.advanceTimersByTimeAsync(100);
 
     // After 5 min, a fresh session appears on the next refresh.
@@ -79,8 +79,8 @@ describe('integration: documented bug reproducers', () => {
 
   it('B3: a new session arriving mid-tick survives the tick result', async () => {
     // Tick fires, warmFn is in flight for many seconds, refresh adds a new
-    // session during that window. With B3 fixed, TICK_RESULT merges by
-    // sessionId so the refresh-added session survives the tick result.
+    // session during that window. With B3 fixed, WARM_PATCHES_RECEIVED applies
+    // narrow warm facts so the refresh-added session survives the result.
     const t0 = new Date('2026-04-20T12:00:00Z');
     vi.setSystemTime(t0);
 
@@ -128,7 +128,7 @@ describe('integration: documented bug reproducers', () => {
       React.createElement(App, {
         intervalMinutes: 55,
         warmPrompt: "Reply 'ok'",
-        // random:0 — bootstrap picks the earliest slot in [now, windowEnd].
+        // random:0 - bootstrap picks the earliest slot in [now, windowEnd].
         deps: { fs, warmFn, random: () => 0 },
       }),
     );
@@ -157,8 +157,8 @@ describe('integration: documented bug reproducers', () => {
     // Sanity: at this point brand-new has been rendered via refresh.
     expect(lastFrame()).toContain('BrandNewArrival');
 
-    // Resolve the in-flight warm. TICK_RESULT replaces the sessions list
-    // with the stale-snapshot-derived `updated` that only contained 'a'.
+    // Resolve the in-flight warm. Warm patches should update 'a' without
+    // replacing the full session list that now also contains the new session.
     resolveWarm({
       sessionId: 'a',
       usage: { inputTokens: 0, cacheReadInputTokens: 80_000, cacheCreationInputTokens: 1_000, outputTokens: 3 },

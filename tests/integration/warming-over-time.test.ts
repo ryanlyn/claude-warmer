@@ -4,7 +4,7 @@
  * that a selected warm session actually gets warmed on the expected cadence.
  *
  * Had a test of this shape existed when `fd23508e` was being debugged, the
- * "11-hour silent miss" bug would have failed CI immediately — the whole
+ * "11-hour silent miss" bug would have failed CI immediately - the whole
  * point of this tier.
  */
 import React, { type ReactNode } from 'react';
@@ -31,7 +31,7 @@ describe('integration: warming over simulated time', () => {
 
   it('warms a selected warm session repeatedly across 11 simulated hours', async () => {
     // Seed the in-memory fs with a single warm session whose most recent
-    // assistant message is 1 minute old — so `discoverSessions` marks
+    // assistant message is 1 minute old - so `discoverSessions` marks
     // `isWarm:true` and `selected:true`.
     const now = new Date('2026-04-20T12:11:00Z');
     vi.setSystemTime(now);
