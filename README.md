@@ -10,7 +10,7 @@ Not affiliated with or endorsed by Anthropic.
 
 ## Requirements
 
-- Node.js 18 or newer
+- Node.js 20 or newer
 - Claude Code installed and authenticated so `claude` is available on your `PATH`
 - At least one resumable Claude Code session already present in `~/.claude/projects/`
 
