@@ -1,6 +1,7 @@
 import type { Session, WarmFn, WarmPatch } from './types.js';
 import { nextFirstWarm, nextAfterSuccess, nextAfterError } from './scheduler-policy.js';
 import { realClock, type Clock, type Random } from './deps.js';
+import { canWarmSession, markSessionUnwarmable } from './session-policy.js';
 
 export class Scheduler {
   private warmFn: WarmFn;
@@ -18,6 +19,9 @@ export class Scheduler {
     const now = this.clock.now();
     const intervalMs = intervalMinutes * 60 * 1000;
     return sessions.map((s) => {
+      if (!canWarmSession(s)) {
+        return markSessionUnwarmable(s);
+      }
       if (!s.selected) {
         return { ...s, nextWarmAt: null };
       }
@@ -35,7 +39,7 @@ export class Scheduler {
     // past the 60-min cache TTL by the cumulative warm time. See
     // `tests/lib/scheduler-bugs.test.ts > B4`.
     for (const s of sessions) {
-      if (!s.nextWarmAt || s.nextWarmAt > now || !s.selected) {
+      if (!s.nextWarmAt || s.nextWarmAt > now || !s.selected || !canWarmSession(s)) {
         continue;
       }
 
@@ -71,6 +75,9 @@ export class Scheduler {
   }
 
   scheduleFirstWarm(session: Session, intervalMinutes: number): Session {
+    if (!canWarmSession(session)) {
+      return markSessionUnwarmable(session);
+    }
     const now = this.clock.now();
     const intervalMs = intervalMinutes * 60 * 1000;
     return { ...session, nextWarmAt: nextFirstWarm(session, now, this.rng, intervalMs) };

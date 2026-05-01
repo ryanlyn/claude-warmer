@@ -3,6 +3,7 @@ import { Box, Text } from 'ink';
 import type { Session } from '../lib/types.js';
 import { formatUsd, shortenModelName, calcEstimatedWarmCost } from '../lib/pricing.js';
 import type { ColumnLayout } from '../lib/layout.js';
+import { canWarmSession } from '../lib/session-policy.js';
 
 interface SessionRowProps {
   session: Session;
@@ -25,15 +26,19 @@ function formatCountdown(nextWarmAt: number | null): string {
   return `${minutes}m`;
 }
 
+function isActivelyWarming(session: Session, warmingEnabled: boolean): boolean {
+  return warmingEnabled && session.selected && session.isWarm && canWarmSession(session);
+}
+
 function StatusBadge({ session, warmingEnabled }: { session: Session; warmingEnabled: boolean }) {
-  const isActivelyWarming = warmingEnabled && session.selected && session.isWarm;
-  const liveColor = isActivelyWarming ? 'green' : 'yellow';
+  const active = isActivelyWarming(session, warmingEnabled);
+  const liveColor = active ? 'green' : 'yellow';
   const liveIndicator = session.isLive ? <Text color={liveColor}>●</Text> : <Text> </Text>;
   if (session.isWarm) {
     return (
       <>
         {liveIndicator}
-        <Text color={isActivelyWarming ? 'green' : 'yellow'}>[w]</Text>
+        <Text color={active ? 'green' : 'yellow'}>[w]</Text>
       </>
     );
   }
@@ -58,9 +63,9 @@ export function SessionRow({ session, highlighted, layout, warmingEnabled }: Ses
   const selectChar = session.selected ? '>' : ' ';
   const bgColor = highlighted ? 'gray' : undefined;
   const isCold = !session.isWarm && !session.isLive;
-  const isActivelyWarming = warmingEnabled && session.selected && session.isWarm;
-  const rowColor = isActivelyWarming ? 'green' : undefined;
-  const isDim = isActivelyWarming ? false : isCold || !session.selected;
+  const active = isActivelyWarming(session, warmingEnabled);
+  const rowColor = active ? 'green' : undefined;
+  const isDim = active ? false : isCold || !session.selected;
 
   const expiryCost = isCold ? '-' : formatUsd(session.expiryCostUsd);
   const warmingCost = isCold

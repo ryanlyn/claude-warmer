@@ -12,7 +12,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     model: 'claude-sonnet-4-6',
     lastAssistantTimestamp: Date.now() - 10 * 60 * 1000, // 10 min ago
     isWarm: true,
-    isLive: false,
+    isLive: true,
     cacheReadTokens: 50000,
     cacheWriteTokens: 1000,
     expiryCostUsd: 0.3,
@@ -84,6 +84,14 @@ describe('Scheduler', () => {
       expect(result).toHaveLength(1);
       expect(result[0].nextWarmAt).toBeNull();
     });
+
+    it('skips closed sessions even if they are selected', () => {
+      const session = makeSession({ isLive: false, selected: true, nextWarmAt: Date.now() - 1000 });
+      const result = scheduler.bootstrap([session], 55);
+      expect(result).toHaveLength(1);
+      expect(result[0].selected).toBe(false);
+      expect(result[0].nextWarmAt).toBeNull();
+    });
   });
 
   describe('runDueWarmups', () => {
@@ -116,6 +124,13 @@ describe('Scheduler', () => {
       const sessions = [makeSession({ nextWarmAt: Date.now() + 60_000 })];
       const result = await scheduler.runDueWarmups(sessions, 'Reply OK', 55);
       expect(result).toEqual([]);
+    });
+
+    it('does not warm closed sessions even if stale state says they are due', async () => {
+      const session = makeSession({ isLive: false, selected: true, nextWarmAt: Date.now() - 1000 });
+      const patches = await scheduler.runDueWarmups([session], 'Reply OK', 55);
+      expect(mockWarmFn).not.toHaveBeenCalled();
+      expect(patches).toEqual([]);
     });
 
     it('falls back to session model when result model is empty', async () => {
@@ -250,6 +265,13 @@ describe('Scheduler', () => {
       });
       const updated = scheduler.scheduleFirstWarm(session, 55);
       expect(updated.nextWarmAt!).toBeLessThanOrEqual(Date.now());
+    });
+
+    it('does not schedule a closed session', () => {
+      const session = makeSession({ isLive: false, selected: true, nextWarmAt: null });
+      const updated = scheduler.scheduleFirstWarm(session, 55);
+      expect(updated.selected).toBe(false);
+      expect(updated.nextWarmAt).toBeNull();
     });
   });
 

@@ -1,37 +1,24 @@
 #!/usr/bin/env node
 import React from 'react';
 import { render } from 'ink';
-import { parseArgs } from 'node:util';
 import { execFileSync } from 'node:child_process';
 import { App } from './app.js';
+import { CliUsageError, HELP_TEXT, parseCliArgs, type ParsedCliArgs } from './lib/cli.js';
 
-const { values } = parseArgs({
-  options: {
-    interval: { type: 'string', short: 'i', default: '55' },
-    prompt: { type: 'string', default: "Reply 'ok'" },
-    help: { type: 'boolean', short: 'h', default: false },
-  },
-  strict: true,
-});
-
-if (values.help) {
-  console.log(`
-Claude Warmer - Keep Claude Code session caches alive
-
-Usage: claude-warmer [options]
-
-Options:
-  -i, --interval <minutes>  Warming interval in minutes (default: 55)
-  --prompt <string>         Custom warm prompt (default: "Reply 'ok'")
-  -h, --help                Show this help message
-`);
-  process.exit(0);
+let cli: ParsedCliArgs;
+try {
+  cli = parseCliArgs();
+} catch (error) {
+  if (error instanceof CliUsageError) {
+    console.error(`Error: ${error.message}`);
+    process.exit(1);
+  }
+  throw error;
 }
 
-const intervalMinutes = parseInt(values.interval!, 10);
-if (isNaN(intervalMinutes) || intervalMinutes < 1 || intervalMinutes > 59) {
-  console.error('Error: interval must be between 1 and 59 minutes');
-  process.exit(1);
+if (cli.help) {
+  console.log(HELP_TEXT);
+  process.exit(0);
 }
 
 // CLAUDE_PATH is an integration-test escape hatch that also lets advanced users
@@ -53,4 +40,11 @@ if (!process.env.CLAUDE_PATH) {
 
 process.stdout.write('\x1B[2J\x1B[H');
 
-render(<App intervalMinutes={intervalMinutes} warmPrompt={values.prompt!} />);
+render(
+  <App
+    intervalMinutes={cli.intervalMinutes}
+    warmPrompt={cli.warmPrompt}
+    initialAutoEnabled={cli.initialAutoEnabled}
+    initialWarmingEnabled={cli.initialWarmingEnabled}
+  />,
+);

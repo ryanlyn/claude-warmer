@@ -40,7 +40,7 @@ function makeTwoSessions() {
       model: 'claude-opus-4-6',
       lastAssistantTimestamp: Date.now() - 10 * 60 * 1000,
       isWarm: true,
-      isLive: false,
+      isLive: true,
       cacheReadTokens: 100000,
       cacheWriteTokens: 5000,
       expiryCostUsd: 1.05,
@@ -84,7 +84,7 @@ function defaultSession() {
     model: 'claude-opus-4-6',
     lastAssistantTimestamp: Date.now() - 10 * 60 * 1000,
     isWarm: true,
-    isLive: false,
+    isLive: true,
     cacheReadTokens: 100000,
     cacheWriteTokens: 5000,
     expiryCostUsd: 1.05,
@@ -182,6 +182,153 @@ describe('App', () => {
     expect(lastFrame()!).toContain('active');
   });
 
+  it('initial auto mode starts warming and renders auto state', async () => {
+    mockSessions.discoverSessions.mockReturnValue([
+      {
+        ...defaultSession(),
+        isLive: true,
+        isWarm: false,
+        selected: false,
+        lastAssistantTimestamp: Date.now() - 2 * 60 * 60 * 1000,
+      },
+      {
+        ...defaultSession(),
+        sessionId: 'closed-1',
+        isLive: false,
+        selected: false,
+        nextWarmAt: null,
+      },
+    ]);
+
+    vi.useFakeTimers();
+    const { lastFrame, unmount } = render(
+      <App intervalMinutes={55} warmPrompt="Reply 'ok'" initialAutoEnabled={true} initialWarmingEnabled={true} />,
+    );
+
+    expect(lastFrame()!).toContain('active');
+    expect(lastFrame()!).toContain('auto');
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(warmerModule.warmSession).toHaveBeenCalledWith('abc-123', "Reply 'ok'", '/test', 'test');
+
+    unmount();
+    vi.useRealTimers();
+  });
+
+  it('m key enables auto mode and starts warming live sessions', async () => {
+    mockSessions.discoverSessions.mockReturnValue([
+      {
+        ...defaultSession(),
+        isLive: true,
+        isWarm: false,
+        selected: false,
+        lastAssistantTimestamp: Date.now() - 2 * 60 * 60 * 1000,
+      },
+      {
+        ...defaultSession(),
+        sessionId: 'closed-1',
+        isLive: false,
+        selected: false,
+        nextWarmAt: null,
+      },
+    ]);
+
+    vi.useFakeTimers();
+    const { stdin, lastFrame, unmount } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    await vi.advanceTimersByTimeAsync(50);
+
+    stdin.write('m');
+    await vi.advanceTimersByTimeAsync(50);
+    expect(lastFrame()!).toContain('active');
+    expect(lastFrame()!).toContain('auto');
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(warmerModule.warmSession).toHaveBeenCalledWith('abc-123', "Reply 'ok'", '/test', 'test');
+
+    unmount();
+    vi.useRealTimers();
+  });
+
+  it('m key enables auto mode while warming is already active without restarting the run', async () => {
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    await tick();
+
+    stdin.write('\r');
+    await tick();
+    stdin.write('m');
+    await tick();
+
+    expect(lastFrame()!).toContain('active');
+    expect(lastFrame()!).toContain('auto');
+  });
+
+  it('m key turns auto mode back off without stopping warming', async () => {
+    const { stdin, lastFrame } = render(
+      <App intervalMinutes={55} warmPrompt="Reply 'ok'" initialAutoEnabled={true} initialWarmingEnabled={true} />,
+    );
+    await tick();
+
+    stdin.write('m');
+    await tick();
+
+    expect(lastFrame()!).toContain('active');
+    expect(lastFrame()!).toContain('manual');
+  });
+
+  it('manual selection keys are ignored while auto mode is active', async () => {
+    const { stdin, lastFrame } = render(
+      <App intervalMinutes={55} warmPrompt="Reply 'ok'" initialAutoEnabled={true} initialWarmingEnabled={true} />,
+    );
+    await tick();
+
+    stdin.write('n');
+    stdin.write('a');
+    await tick();
+
+    const frame = lastFrame()!;
+    expect(frame).toContain('auto');
+    expect(frame.match(/^>/gm) || []).toHaveLength(1);
+  });
+
+  it('enter restarts warming from auto mode after warming was stopped', async () => {
+    mockSessions.discoverSessions.mockReturnValue([
+      {
+        ...defaultSession(),
+        isLive: true,
+        isWarm: false,
+        selected: false,
+        lastAssistantTimestamp: Date.now() - 2 * 60 * 60 * 1000,
+      },
+      {
+        ...defaultSession(),
+        sessionId: 'closed-1',
+        isLive: false,
+        selected: false,
+        nextWarmAt: null,
+      },
+    ]);
+
+    vi.useFakeTimers();
+    const { stdin, unmount } = render(
+      <App intervalMinutes={55} warmPrompt="Reply 'ok'" initialAutoEnabled={true} initialWarmingEnabled={true} />,
+    );
+    await vi.advanceTimersByTimeAsync(50);
+
+    stdin.write('\r');
+    await vi.advanceTimersByTimeAsync(50);
+    stdin.write('\r');
+    await vi.advanceTimersByTimeAsync(50);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(warmerModule.warmSession).toHaveBeenCalledWith('abc-123', "Reply 'ok'", '/test', 'test');
+
+    unmount();
+    vi.useRealTimers();
+  });
+
   it('selects active sessions on a key', async () => {
     mockSessions.discoverSessions.mockReturnValue(makeTwoSessions());
 
@@ -198,6 +345,8 @@ describe('App', () => {
     const frame = lastFrame()!;
     expect(frame).toContain('Session One');
     expect(frame).toContain('Session Two');
+    const selectedMarkers = frame.match(/^>/gm) || [];
+    expect(selectedMarkers).toHaveLength(1);
   });
 
   it('deselects all on n key', async () => {
@@ -272,6 +421,25 @@ describe('App', () => {
     stdin.write('\r');
     await tick();
     expect(lastFrame()!).toContain('active');
+  });
+
+  it('does not toggle closed sessions with space', async () => {
+    mockSessions.discoverSessions.mockReturnValue([
+      {
+        ...defaultSession(),
+        isLive: false,
+        selected: false,
+        nextWarmAt: null,
+      },
+    ]);
+
+    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    await tick();
+
+    stdin.write(' ');
+    await tick();
+    const selectedMarkers = lastFrame()!.match(/^>/gm) || [];
+    expect(selectedMarkers).toHaveLength(0);
   });
 
   it('toggles warming off with enter key pressed twice', async () => {
@@ -471,6 +639,7 @@ describe('App', () => {
       name: 'New Session',
       selected: true, // discoverSessions returns selected:true for warm sessions
       isWarm: true,
+      isLive: true,
     };
     mockSessions.discoverSessions.mockReturnValue([defaultSession(), newSession]);
 
@@ -510,6 +679,7 @@ describe('App', () => {
       name: 'NewWarm',
       selected: true,
       isWarm: true,
+      isLive: true,
       // distinct tokens so it renders as its own row
       cacheReadTokens: 9999,
     };

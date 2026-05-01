@@ -9,6 +9,7 @@ describe('Footer', () => {
     const frame = lastFrame()!;
     expect(frame).toContain('toggle');
     expect(frame).toContain('warm');
+    expect(frame).toContain('mode');
     expect(frame).toContain('live');
     expect(frame).toContain('none');
     expect(frame).toContain('prompt');

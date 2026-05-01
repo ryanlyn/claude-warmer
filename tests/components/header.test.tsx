@@ -10,6 +10,7 @@ describe('Header', () => {
         warmingEnabled={false}
         intervalMinutes={55}
         warmPrompt="Reply with only the word OK"
+        autoEnabled={false}
         refreshIntervalSec={30}
         lastRefreshed={Date.now()}
       />,
@@ -23,6 +24,7 @@ describe('Header', () => {
         warmingEnabled={false}
         intervalMinutes={55}
         warmPrompt="Reply with only the word OK"
+        autoEnabled={false}
         refreshIntervalSec={30}
         lastRefreshed={Date.now()}
       />,
@@ -36,6 +38,7 @@ describe('Header', () => {
         warmingEnabled={true}
         intervalMinutes={55}
         warmPrompt="Reply with only the word OK"
+        autoEnabled={false}
         refreshIntervalSec={30}
         lastRefreshed={Date.now()}
       />,
@@ -49,6 +52,7 @@ describe('Header', () => {
         warmingEnabled={false}
         intervalMinutes={30}
         warmPrompt="Reply with only the word OK"
+        autoEnabled={false}
         refreshIntervalSec={30}
         lastRefreshed={Date.now()}
       />,
@@ -62,6 +66,7 @@ describe('Header', () => {
         warmingEnabled={false}
         intervalMinutes={55}
         warmPrompt="Say hi"
+        autoEnabled={false}
         refreshIntervalSec={30}
         lastRefreshed={Date.now()}
       />,
@@ -75,6 +80,7 @@ describe('Header', () => {
         warmingEnabled={false}
         intervalMinutes={55}
         warmPrompt="ok"
+        autoEnabled={false}
         refreshIntervalSec={30}
         lastRefreshed={null}
       />,
@@ -88,6 +94,7 @@ describe('Header', () => {
         warmingEnabled={false}
         intervalMinutes={55}
         warmPrompt="Reply with only the word OK"
+        autoEnabled={false}
         refreshIntervalSec={30}
         lastRefreshed={Date.now()}
       />,
@@ -97,5 +104,19 @@ describe('Header', () => {
     expect(frame).toContain('live');
     expect(frame).toContain('warm');
     expect(frame).toContain('cold');
+  });
+
+  it('shows auto mode when enabled', () => {
+    const { lastFrame } = render(
+      <Header
+        warmingEnabled={true}
+        intervalMinutes={55}
+        warmPrompt="Reply with only the word OK"
+        autoEnabled={true}
+        refreshIntervalSec={30}
+        lastRefreshed={Date.now()}
+      />,
+    );
+    expect(lastFrame()!).toContain('auto');
   });
 });

@@ -18,6 +18,7 @@ export function Footer() {
       <Text wrap="truncate-end">
         <KeyHint keyName="ent" label="warm" />
         <KeyHint keyName="spc" label="toggle" />
+        <KeyHint keyName="m" label="mode" />
         <KeyHint keyName="a" label="live" />
         <KeyHint keyName="n" label="none" />
         <KeyHint keyName="i" label="int" />

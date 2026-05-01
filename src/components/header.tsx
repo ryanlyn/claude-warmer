@@ -5,6 +5,7 @@ interface HeaderProps {
   warmingEnabled: boolean;
   intervalMinutes: number;
   warmPrompt: string;
+  autoEnabled: boolean;
   refreshIntervalSec: number;
   lastRefreshed: number | null;
 }
@@ -13,6 +14,7 @@ export function Header({
   warmingEnabled,
   intervalMinutes,
   warmPrompt,
+  autoEnabled,
   refreshIntervalSec,
   lastRefreshed,
 }: HeaderProps) {
@@ -39,6 +41,9 @@ export function Header({
         ) : (
           <Text dimColor>paused</Text>
         )}
+        <Text> </Text>
+        <Text dimColor>mode:</Text>
+        <Text>{autoEnabled ? 'auto' : 'manual'}</Text>
         <Text> </Text>
         <Text dimColor>int:</Text>
         <Text>{intervalMinutes}m</Text>

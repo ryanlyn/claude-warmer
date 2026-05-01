@@ -17,7 +17,7 @@ function session(overrides: Partial<Session> = {}): Session {
     model: 'claude-sonnet-4-6',
     lastAssistantTimestamp: 0,
     isWarm: false,
-    isLive: false,
+    isLive: true,
     cacheReadTokens: 0,
     cacheWriteTokens: 0,
     expiryCostUsd: 0,
@@ -97,6 +97,41 @@ describe('mergeDiscoverySnapshot', () => {
     expect(s2.selected).toBe(true);
   });
 
+  it('forces closed sessions inert when a refresh reports the process is gone', () => {
+    const prev = [
+      session({
+        sessionId: 's1',
+        isLive: true,
+        selected: true,
+        nextWarmAt: 123456,
+        warmStatus: 'warming',
+        warmCount: 2,
+      }),
+    ];
+    const fresh = [session({ sessionId: 's1', isLive: false, isWarm: true, selected: true })];
+    const merged = mergeDiscoverySnapshot(prev, fresh, false);
+    expect(merged[0]).toMatchObject({
+      isLive: false,
+      selected: false,
+      nextWarmAt: null,
+      warmStatus: 'idle',
+      warmCount: 2,
+    });
+  });
+
+  it('uses discovery liveness as selection source while auto mode is active', () => {
+    const prev = [session({ sessionId: 's1', isLive: false, selected: false, nextWarmAt: null })];
+    const fresh = [session({ sessionId: 's1', isLive: true, selected: true, nextWarmAt: 2222 })];
+    const merged = mergeDiscoverySnapshot(prev, fresh, true);
+    expect(merged[0].selected).toBe(true);
+    expect(merged[0].nextWarmAt).toBe(2222);
+  });
+
+  it('selects newly discovered live sessions while auto mode is active', () => {
+    const merged = mergeDiscoverySnapshot([], [session({ sessionId: 's1', isLive: true, selected: false })], true);
+    expect(merged[0].selected).toBe(true);
+  });
+
   it('drops sessions no longer present in fresh', () => {
     const prev = [session({ sessionId: 's1' }), session({ sessionId: 's2' })];
     const fresh = [session({ sessionId: 's1' })];
@@ -153,6 +188,12 @@ describe('applyWarmPatches', () => {
 
   it('keeps the same reference when a started patch targets a deselected session', () => {
     const latest = [session({ sessionId: 's1', selected: false, warmStatus: 'idle' })];
+    const merged = applyWarmPatches(latest, [{ type: 'started', sessionId: 's1', startedAt: 1000 }]);
+    expect(merged).toBe(latest);
+  });
+
+  it('ignores stale warm patches after a session is discovered closed', () => {
+    const latest = [session({ sessionId: 's1', isLive: false, selected: false, warmStatus: 'idle' })];
     const merged = applyWarmPatches(latest, [{ type: 'started', sessionId: 's1', startedAt: 1000 }]);
     expect(merged).toBe(latest);
   });
@@ -314,6 +355,19 @@ describe('appReducer', () => {
     expect(next.sessions.find((s) => s.sessionId === 's1')!.warmCount).toBe(1);
   });
 
+  it('WARM_PATCHES_RECEIVED no-ops when patches do not change state', () => {
+    const state = stateWith([session({ sessionId: 's1' })], {
+      warmingEnabled: true,
+      warmingRunId: 1,
+    });
+    const next = appReducer(state, {
+      type: 'WARM_PATCHES_RECEIVED',
+      runId: 1,
+      patches: [],
+    });
+    expect(next).toBe(state);
+  });
+
   it('WARM_PATCHES_RECEIVED ignores stale patches after warming is stopped', () => {
     const state = stateWith([session({ sessionId: 's1' })], { warmingEnabled: false, warmingRunId: 2 });
     const next = appReducer(state, {
@@ -356,6 +410,32 @@ describe('appReducer', () => {
     });
     expect(next.warmingEnabled).toBe(true);
     expect(next.warmingRunId).toBe(1);
+    expect(next.sessions[0].nextWarmAt).toBe(9999);
+  });
+
+  it('AUTO_STARTED enables auto mode, starts warming, and adopts bootstrapped live sessions', () => {
+    const state = stateWith([session({ sessionId: 'a' })]);
+    const next = appReducer(state, {
+      type: 'AUTO_STARTED',
+      runId: 1,
+      bootstrapped: [session({ sessionId: 'a', isLive: true, selected: true, nextWarmAt: 9999 })],
+    });
+    expect(next.autoEnabled).toBe(true);
+    expect(next.warmingEnabled).toBe(true);
+    expect(next.warmingRunId).toBe(1);
+    expect(next.sessions[0].selected).toBe(true);
+    expect(next.sessions[0].nextWarmAt).toBe(9999);
+  });
+
+  it('AUTO_STOPPED keeps warming and current selections in manual mode', () => {
+    const state = stateWith([session({ sessionId: 'a', isLive: true, selected: true, nextWarmAt: 9999 })], {
+      autoEnabled: true,
+      warmingEnabled: true,
+    });
+    const next = appReducer(state, { type: 'AUTO_STOPPED' });
+    expect(next.autoEnabled).toBe(false);
+    expect(next.warmingEnabled).toBe(true);
+    expect(next.sessions[0].selected).toBe(true);
     expect(next.sessions[0].nextWarmAt).toBe(9999);
   });
 

@@ -358,6 +358,7 @@ describe('discoverSessions', () => {
     expect(sessions[0].cwd).toBe('/home/user/project');
     expect(sessions[0].isLive).toBe(false);
     expect(sessions[0].isWarm).toBe(true);
+    expect(sessions[0].selected).toBe(false);
   });
 
   it('handles sessions dir not existing for loadPidFiles', () => {
@@ -923,6 +924,7 @@ describe('discoverSessions', () => {
     // Live session should be first (active) even though it has fewer tokens and is cold by timestamp
     expect(sessions[0].sessionId).toBe('live-session');
     expect(sessions[0].isLive).toBe(true);
+    expect(sessions[0].selected).toBe(false);
     expect(sessions[1].sessionId).toBe('cold-session');
   });
 
@@ -1042,12 +1044,15 @@ describe('discoverSessions', () => {
     // Two live sessions sorted by cached tokens desc
     expect(sessions[0].sessionId).toBe('live-b');
     expect(sessions[0].isLive).toBe(true);
+    expect(sessions[0].selected).toBe(false);
     expect(sessions[1].sessionId).toBe('live-a');
     expect(sessions[1].isLive).toBe(true);
+    expect(sessions[1].selected).toBe(false);
     // Then warm
     expect(sessions[2].sessionId).toBe('warm-session');
     expect(sessions[2].isWarm).toBe(true);
     expect(sessions[2].isLive).toBe(false);
+    expect(sessions[2].selected).toBe(false);
     // Then cold
     expect(sessions[3].sessionId).toBe('cold-session');
     expect(sessions[3].isWarm).toBe(false);

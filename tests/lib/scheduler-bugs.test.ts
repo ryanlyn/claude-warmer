@@ -22,7 +22,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     model: 'claude-sonnet-4-6',
     lastAssistantTimestamp: Date.now() - 10 * 60 * 1000,
     isWarm: true,
-    isLive: false,
+    isLive: true,
     cacheReadTokens: 50000,
     cacheWriteTokens: 1000,
     expiryCostUsd: 0.3,

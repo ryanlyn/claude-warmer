@@ -4,6 +4,7 @@ import type { Session } from './types.js';
 import { calcExpiryCost } from './pricing.js';
 import { WARM_THRESHOLD_MS } from './types.js';
 import { realClock, realFs, type Clock, type Fs } from './deps.js';
+import { canWarmSession } from './session-policy.js';
 
 interface ParsedSession {
   name: string;
@@ -235,6 +236,7 @@ export function discoverSessions(fs: Fs = realFs, clock: Clock = realClock): Ses
       if (cachedTokens === 0) continue;
       const pidInfo = pidMap.get(sessionId);
       const isWarm = now - parsed.lastAssistantTimestamp < WARM_THRESHOLD_MS;
+      const isLive = pidInfo?.isLive || false;
 
       sessions.push({
         sessionId,
@@ -244,11 +246,11 @@ export function discoverSessions(fs: Fs = realFs, clock: Clock = realClock): Ses
         model,
         lastAssistantTimestamp: parsed.lastAssistantTimestamp,
         isWarm,
-        isLive: pidInfo?.isLive || false,
+        isLive,
         cacheReadTokens: parsed.cacheReadTokens,
         cacheWriteTokens: parsed.cacheWriteTokens,
         expiryCostUsd: calcExpiryCost(cachedTokens, model),
-        selected: isWarm,
+        selected: isWarm && canWarmSession({ isLive }),
         warmStatus: 'idle',
         warmCostUsd: 0,
         warmCount: 0,
