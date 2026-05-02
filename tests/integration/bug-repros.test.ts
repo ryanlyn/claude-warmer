@@ -131,7 +131,8 @@ describe('integration: documented bug reproducers', () => {
       React.createElement(App, {
         intervalMinutes: 55,
         warmPrompt: "Reply 'ok'",
-        // random:0 - bootstrap picks the earliest slot in [now, windowEnd].
+        // random:0 - jitter floors `a`'s nextWarmAt to `now` (the anchor is
+        // 50min old, so base + min jitter lands in the past).
         deps: { fs, warmFn, random: () => 0 },
       }),
     );

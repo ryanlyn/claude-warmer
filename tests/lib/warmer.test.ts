@@ -417,12 +417,6 @@ describe('warmSession', () => {
     expect(result.error).toBe('Failed to read JSONL file after warm');
   });
 
-  // B2 bug fix: previously H3 asserted the warmer should derive cwd from
-  // projectDir when called with an empty cwd. The fix moved upstream to
-  // discoverSessions (see sessions.test.ts: "when pidInfo is missing, cwd
-  // falls back to decoded projectDir"), so the warmer now receives a
-  // pre-decoded cwd and just passes it through. The H3 test is obsolete.
-
   it('passes undefined cwd when not provided', async () => {
     mockFs.statSync.mockReturnValue({ size: 0 } as fs.Stats);
 
