@@ -1,5 +1,5 @@
 import type { Session } from './types.js';
-import { WARM_THRESHOLD_MS, SAFETY_MARGIN_MS, BACKOFF_SCHEDULE_MS } from './types.js';
+import { WARM_THRESHOLD_MS, SAFETY_MARGIN_MS, FIRST_WARM_JITTER_MS, BACKOFF_SCHEDULE_MS } from './types.js';
 
 // Pure scheduling policy. Side-effect-free so the arithmetic can be tested
 // without fake timers or mocked warmers, and so alternative policies (e.g.
@@ -7,27 +7,20 @@ import { WARM_THRESHOLD_MS, SAFETY_MARGIN_MS, BACKOFF_SCHEDULE_MS } from './type
 
 // Schedule the first warm for a selected session.
 //
-// Cold sessions (cache window already lapsed) fire immediately. Warm sessions
-// pick a random point in `[now, upperBound)` where the upper bound is the
-// nearer of (a) the cache-anchor TTL boundary and (b) one user-chosen
-// `intervalMs` from now. The intervalMs cap matters when the user picks a
-// short interval (e.g. `-i 1`) to validate the warmer end-to-end against an
-// already-warm session - without it the first warm could fire up to 55min
-// later, regardless of what `--interval` says, because the cache TTL window
-// dominates.
+// Mirrors `nextAfterSuccess` (anchor + min(intervalMs, cap)) but uses the
+// session's last interaction time as the anchor instead of a prior warm
+// time, then adds symmetric ±FIRST_WARM_JITTER_MS jitter so multiple
+// sessions bootstrapped together don't all fire at once. The result is
+// floored at `now` (so cold sessions warm immediately) and capped at
+// `anchor + WARM_THRESHOLD_MS` (so jitter never pushes a warm past the
+// cache TTL).
 export function nextFirstWarm(session: Session, now: number, rng: () => number, intervalMs: number): number {
-  const anchor = session.lastWarmedAt ?? session.lastAssistantTimestamp;
-  const windowEnd = anchor + WARM_THRESHOLD_MS;
-
-  if (windowEnd <= now) {
-    return now;
-  }
-
-  const intervalBound = now + Math.max(intervalMs, 0);
-  const upperBound = Math.min(windowEnd, intervalBound);
-  if (upperBound <= now) return now;
-  const remaining = upperBound - now;
-  return now + Math.floor(rng() * remaining);
+  const anchor = session.lastAssistantTimestamp;
+  const cap = WARM_THRESHOLD_MS - SAFETY_MARGIN_MS;
+  const base = anchor + Math.min(Math.max(intervalMs, 0), cap);
+  const jitter = Math.floor((rng() - 0.5) * 2 * FIRST_WARM_JITTER_MS);
+  const candidate = Math.min(base + jitter, anchor + WARM_THRESHOLD_MS);
+  return Math.max(now, candidate);
 }
 
 // Clamp the user-chosen interval against `WARM_THRESHOLD_MS - SAFETY_MARGIN_MS`

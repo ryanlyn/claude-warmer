@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { nextFirstWarm, nextAfterSuccess, nextAfterError } from '../../src/lib/scheduler-policy.js';
-import { WARM_THRESHOLD_MS, SAFETY_MARGIN_MS, BACKOFF_SCHEDULE_MS } from '../../src/lib/types.js';
+import { WARM_THRESHOLD_MS, SAFETY_MARGIN_MS, FIRST_WARM_JITTER_MS, BACKOFF_SCHEDULE_MS } from '../../src/lib/types.js';
 import type { Session } from '../../src/lib/types.js';
 
 function makeSession(overrides: Partial<Session> = {}): Session {
@@ -45,6 +45,8 @@ const DEFAULT_INTERVAL_MS = 55 * 60_000;
 
 describe('scheduler-policy', () => {
   describe('nextFirstWarm', () => {
+    const CAP = WARM_THRESHOLD_MS - SAFETY_MARGIN_MS;
+
     it('returns `now` when the cache window has already expired (cold)', () => {
       const now = 10_000_000;
       const session = makeSession({ lastAssistantTimestamp: now - 2 * WARM_THRESHOLD_MS });
@@ -57,70 +59,70 @@ describe('scheduler-policy', () => {
       expect(nextFirstWarm(session, now, () => 0.999, DEFAULT_INTERVAL_MS)).toBe(now);
     });
 
-    it('returns `now` when rng=0 and session is warm (earliest point in window)', () => {
-      const now = 10_000_000;
-      const session = makeSession({ lastAssistantTimestamp: now - 5 * 60_000 });
-      expect(nextFirstWarm(session, now, () => 0, DEFAULT_INTERVAL_MS)).toBe(now);
-    });
-
-    it('approaches but never reaches windowEnd when rng=1 (half-open interval)', () => {
+    it('mirrors nextAfterSuccess (anchor + min(intervalMs, cap)) when rng=0.5 produces zero jitter', () => {
+      // rng=0.5 means jitter == 0, so the result is exactly the deterministic base.
       const now = 10_000_000;
       const anchor = now - 5 * 60_000;
-      const windowEnd = anchor + WARM_THRESHOLD_MS;
       const session = makeSession({ lastAssistantTimestamp: anchor });
-      // Math.floor of (remaining * 0.9999) stays strictly below remaining.
+      const result = nextFirstWarm(session, now, () => 0.5, DEFAULT_INTERVAL_MS);
+      expect(result).toBe(anchor + Math.min(DEFAULT_INTERVAL_MS, CAP));
+    });
+
+    it('subtracts up to FIRST_WARM_JITTER_MS when rng=0 (lower jitter bound)', () => {
+      const now = 10_000_000;
+      const anchor = now - 5 * 60_000;
+      const session = makeSession({ lastAssistantTimestamp: anchor });
+      const result = nextFirstWarm(session, now, () => 0, DEFAULT_INTERVAL_MS);
+      const base = anchor + Math.min(DEFAULT_INTERVAL_MS, CAP);
+      // rng=0 ⇒ jitter = -FIRST_WARM_JITTER_MS exactly.
+      expect(result).toBe(base - FIRST_WARM_JITTER_MS);
+    });
+
+    it('caps at anchor + WARM_THRESHOLD_MS so positive jitter never crosses the cache TTL', () => {
+      const now = 10_000_000;
+      const anchor = now - 5 * 60_000;
+      const session = makeSession({ lastAssistantTimestamp: anchor });
+      // rng→1 would push the result above the TTL without the upper clamp.
       const result = nextFirstWarm(session, now, () => 0.9999, DEFAULT_INTERVAL_MS);
-      expect(result).toBeLessThan(windowEnd);
-      expect(result).toBeGreaterThan(now);
+      expect(result).toBeLessThanOrEqual(anchor + WARM_THRESHOLD_MS);
     });
 
-    it('caps the random window at intervalMs so a short --interval is honored', () => {
-      // Session is warm with ~50min of cache window remaining; user picked
-      // --interval 1 (60s). With rng=1, the random point should land in
-      // [now, now+60s), NOT [now, now+50min).
+    it('honors a short --interval rather than waiting near the cache TTL boundary', () => {
+      // Session was just used; user picked --interval 1 (60s). The base
+      // time should be anchor + 60s, jittered ±5min, then floored at now.
       const now = 10_000_000;
-      const session = makeSession({ lastAssistantTimestamp: now - 5 * 60_000 });
-      const result = nextFirstWarm(session, now, () => 0.9999, 60_000);
-      expect(result).toBeGreaterThan(now);
-      expect(result).toBeLessThan(now + 60_000);
+      const anchor = now;
+      const session = makeSession({ lastAssistantTimestamp: anchor });
+      const result = nextFirstWarm(session, now, () => 0.5, 60_000);
+      expect(result).toBe(anchor + 60_000);
     });
 
-    it('uses windowEnd when intervalMs would push the random window past the cache TTL', () => {
-      // 50min into the window only ~5min remain; the user-chosen 55min
-      // interval would push past, so windowEnd dominates.
+    it('uses lastAssistantTimestamp as the anchor regardless of lastWarmedAt', () => {
+      // Even if a prior warm happened more recently, first-warm scheduling
+      // anchors on the session's last user/assistant interaction.
       const now = 10_000_000;
-      const session = makeSession({ lastAssistantTimestamp: now - 50 * 60_000 });
-      const windowEnd = session.lastAssistantTimestamp + WARM_THRESHOLD_MS;
-      const result = nextFirstWarm(session, now, () => 0.9999, DEFAULT_INTERVAL_MS);
-      expect(result).toBeGreaterThan(now);
-      expect(result).toBeLessThan(windowEnd);
-    });
-
-    it('prefers lastWarmedAt over lastAssistantTimestamp when present', () => {
-      const now = 10_000_000;
+      const anchor = now - 30 * 60_000;
       const session = makeSession({
-        lastAssistantTimestamp: now - 2 * WARM_THRESHOLD_MS,
+        lastAssistantTimestamp: anchor,
         lastWarmedAt: now - 60_000,
       });
       const result = nextFirstWarm(session, now, () => 0.5, DEFAULT_INTERVAL_MS);
-      expect(result).toBeGreaterThan(now);
-      expect(result).toBeLessThanOrEqual(session.lastWarmedAt! + WARM_THRESHOLD_MS);
+      expect(result).toBe(anchor + Math.min(DEFAULT_INTERVAL_MS, CAP));
     });
 
-    it('property: result is always in [now, min(windowEnd, now+intervalMs)] for random rng samples', () => {
+    it('property: result is always in [now, anchor + WARM_THRESHOLD_MS] for random rng samples', () => {
       const now = 10_000_000;
       const offsetsMs = [0, 1_000, 60_000, 30 * 60_000, WARM_THRESHOLD_MS - 1];
       const intervalSamples = [60_000, 5 * 60_000, DEFAULT_INTERVAL_MS];
       const rngSamples = [0, 0.0001, 0.25, 0.5, 0.75, 0.9999];
       for (const offset of offsetsMs) {
         const session = makeSession({ lastAssistantTimestamp: now - offset });
-        const windowEnd = session.lastAssistantTimestamp + WARM_THRESHOLD_MS;
+        const ttl = session.lastAssistantTimestamp + WARM_THRESHOLD_MS;
         for (const intervalMs of intervalSamples) {
-          const upperBound = Math.min(windowEnd, now + intervalMs);
           for (const r of rngSamples) {
             const result = nextFirstWarm(session, now, () => r, intervalMs);
             expect(result).toBeGreaterThanOrEqual(now);
-            expect(result).toBeLessThanOrEqual(upperBound);
+            expect(result).toBeLessThanOrEqual(ttl);
           }
         }
       }
@@ -134,11 +136,12 @@ describe('scheduler-policy', () => {
       expect(a).toBe(b);
     });
 
-    it('treats a non-positive intervalMs as 0 (defensive: returns now)', () => {
+    it('treats a non-positive intervalMs as 0', () => {
+      // intervalMs<=0 ⇒ base == anchor; for an old anchor the floor at `now` wins.
       const now = 10_000_000;
       const session = makeSession({ lastAssistantTimestamp: now - 5 * 60_000 });
-      expect(nextFirstWarm(session, now, () => 0.9999, 0)).toBe(now);
-      expect(nextFirstWarm(session, now, () => 0.9999, -1000)).toBe(now);
+      expect(nextFirstWarm(session, now, () => 0.5, 0)).toBe(now);
+      expect(nextFirstWarm(session, now, () => 0.5, -1000)).toBe(now);
     });
   });
 
