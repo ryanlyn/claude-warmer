@@ -105,15 +105,15 @@ describe('Scheduler bug reproducers', () => {
   });
 
   /**
-   * H3: computeFirstWarmTime picks a uniform-random point in
-   * [now, anchor + 55min]. When combined with tick-loop jitter (up to 30s)
-   * and warmSession runtime (up to ~120s), the effective warm-arrival
-   * time at the API is [anchor+55min+30s, anchor+57min], which is still
-   * inside the 60-min TTL. Verify this bound deterministically.
+   * H3: even at worst-case rng, `bootstrap` clamps nextWarmAt at
+   * `anchor + WARM_THRESHOLD_MS` (55min). Combined with tick-loop jitter
+   * (up to 30s) and warmSession runtime (up to ~120s), warm arrival at
+   * the API stays inside the 60-min cache TTL.
    */
-  it('H3: bootstrap random window never overshoots 60min TTL alone', () => {
+  it('H3: bootstrap nextWarmAt never overshoots 60min TTL alone', () => {
     const anchor = Date.now() - 10 * 60 * 1000;
-    // Force Math.random to the worst-case (1.0) to pick the very end of window
+    // Force Math.random to the worst-case (1.0) so positive jitter pushes
+    // the candidate into the upper-clamp regime.
     const randSpy = vi.spyOn(Math, 'random').mockReturnValue(0.999999);
 
     const scheduler = new Scheduler(vi.fn() as unknown as ConstructorParameters<typeof Scheduler>[0]);

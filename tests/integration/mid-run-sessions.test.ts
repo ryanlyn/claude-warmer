@@ -84,12 +84,15 @@ describe('integration: sessions arriving mid-run', () => {
     const fs = new InMemoryFs();
     // Existing session warm (so it's auto-selected on discovery) but with a
     // cold enough anchor that bootstrap schedules it for immediate warming.
+    // Anchor must be older than (cap = WARM_THRESHOLD_MS - SAFETY_MARGIN_MS = 50min)
+    // minus FIRST_WARM_JITTER_MS (5min) so the random=0 (-5min jitter) result
+    // floors to `now`. 50min-old anchor lands base exactly at `now`.
     fs.addFile(
       '.claude/projects/proj/a.jsonl',
       buildJsonl({
         projectDir: 'proj',
         sessionId: 'a',
-        lastAssistantAt: new Date(t0.getTime() - 30 * 60 * 1000),
+        lastAssistantAt: new Date(t0.getTime() - 50 * 60 * 1000),
       }),
     );
 
@@ -125,7 +128,8 @@ describe('integration: sessions arriving mid-run', () => {
       React.createElement(App, {
         intervalMinutes: 55,
         warmPrompt: "Reply 'ok'",
-        // random:0 - bootstrap picks the earliest slot in [now, windowEnd].
+        // random:0 - jitter floors `a`'s nextWarmAt to `now` (the anchor is
+        // 50min old, so base + min jitter lands in the past).
         deps: { fs, warmFn, random: () => 0 },
       }),
     );

@@ -1,31 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { nextFirstWarm, nextAfterSuccess, nextAfterError } from '../../src/lib/scheduler-policy.js';
-import { WARM_THRESHOLD_MS, SAFETY_MARGIN_MS, BACKOFF_SCHEDULE_MS } from '../../src/lib/types.js';
-import type { Session } from '../../src/lib/types.js';
-
-function makeSession(overrides: Partial<Session> = {}): Session {
-  return {
-    sessionId: 'test-id',
-    name: 'Test Session',
-    projectDir: 'test-project',
-    cwd: '/test',
-    model: 'claude-sonnet-4-6',
-    lastAssistantTimestamp: 0,
-    isWarm: false,
-    isLive: false,
-    cacheReadTokens: 0,
-    cacheWriteTokens: 0,
-    expiryCostUsd: 0,
-    selected: true,
-    warmStatus: 'idle',
-    warmCostUsd: 0,
-    warmCount: 0,
-    nextWarmAt: null,
-    lastWarmedAt: null,
-    lastWarmError: null,
-    ...overrides,
-  };
-}
+import { nextWarm, nextAfterError } from '../../src/lib/scheduler-policy.js';
+import { WARM_THRESHOLD_MS, SAFETY_MARGIN_MS, FIRST_WARM_JITTER_MS, BACKOFF_SCHEDULE_MS } from '../../src/lib/types.js';
 
 // Deterministic RNG factory for property-style tests: returns the supplied
 // sequence, then cycles. Keeps assertions about randomness reproducible
@@ -42,127 +17,117 @@ function seededRng(values: number[]): () => number {
 // 55min default interval - matches the WARM_THRESHOLD_MS so the cap is the
 // cache TTL window in nearly every test below.
 const DEFAULT_INTERVAL_MS = 55 * 60_000;
+const CAP = WARM_THRESHOLD_MS - SAFETY_MARGIN_MS;
+
+// Convenience for the first-warm call shape: anchored on a session's last
+// interaction time, with ±FIRST_WARM_JITTER_MS jitter and a `now` floor.
+function firstWarm(anchor: number, now: number, rng: () => number, intervalMs: number): number {
+  return nextWarm(anchor, intervalMs, {
+    jitter: { rng, magnitudeMs: FIRST_WARM_JITTER_MS },
+    now,
+  });
+}
 
 describe('scheduler-policy', () => {
-  describe('nextFirstWarm', () => {
+  describe('nextWarm (first-warm path: jitter + now floor)', () => {
     it('returns `now` when the cache window has already expired (cold)', () => {
       const now = 10_000_000;
-      const session = makeSession({ lastAssistantTimestamp: now - 2 * WARM_THRESHOLD_MS });
-      expect(nextFirstWarm(session, now, () => 0.5, DEFAULT_INTERVAL_MS)).toBe(now);
+      const anchor = now - 2 * WARM_THRESHOLD_MS;
+      expect(firstWarm(anchor, now, () => 0.5, DEFAULT_INTERVAL_MS)).toBe(now);
     });
 
     it('returns `now` exactly when anchor + WARM_THRESHOLD_MS === now (boundary)', () => {
       const now = 10_000_000;
-      const session = makeSession({ lastAssistantTimestamp: now - WARM_THRESHOLD_MS });
-      expect(nextFirstWarm(session, now, () => 0.999, DEFAULT_INTERVAL_MS)).toBe(now);
+      const anchor = now - WARM_THRESHOLD_MS;
+      expect(firstWarm(anchor, now, () => 0.999, DEFAULT_INTERVAL_MS)).toBe(now);
     });
 
-    it('returns `now` when rng=0 and session is warm (earliest point in window)', () => {
-      const now = 10_000_000;
-      const session = makeSession({ lastAssistantTimestamp: now - 5 * 60_000 });
-      expect(nextFirstWarm(session, now, () => 0, DEFAULT_INTERVAL_MS)).toBe(now);
-    });
-
-    it('approaches but never reaches windowEnd when rng=1 (half-open interval)', () => {
+    it('mirrors the success path (anchor + min(intervalMs, cap)) when rng=0.5 produces zero jitter', () => {
+      // rng=0.5 means jitter == 0, so the result is exactly the deterministic base.
       const now = 10_000_000;
       const anchor = now - 5 * 60_000;
-      const windowEnd = anchor + WARM_THRESHOLD_MS;
-      const session = makeSession({ lastAssistantTimestamp: anchor });
-      // Math.floor of (remaining * 0.9999) stays strictly below remaining.
-      const result = nextFirstWarm(session, now, () => 0.9999, DEFAULT_INTERVAL_MS);
-      expect(result).toBeLessThan(windowEnd);
-      expect(result).toBeGreaterThan(now);
+      const result = firstWarm(anchor, now, () => 0.5, DEFAULT_INTERVAL_MS);
+      expect(result).toBe(anchor + Math.min(DEFAULT_INTERVAL_MS, CAP));
     });
 
-    it('caps the random window at intervalMs so a short --interval is honored', () => {
-      // Session is warm with ~50min of cache window remaining; user picked
-      // --interval 1 (60s). With rng=1, the random point should land in
-      // [now, now+60s), NOT [now, now+50min).
+    it('subtracts up to FIRST_WARM_JITTER_MS when rng=0 (lower jitter bound)', () => {
       const now = 10_000_000;
-      const session = makeSession({ lastAssistantTimestamp: now - 5 * 60_000 });
-      const result = nextFirstWarm(session, now, () => 0.9999, 60_000);
-      expect(result).toBeGreaterThan(now);
-      expect(result).toBeLessThan(now + 60_000);
+      const anchor = now - 5 * 60_000;
+      const result = firstWarm(anchor, now, () => 0, DEFAULT_INTERVAL_MS);
+      const base = anchor + Math.min(DEFAULT_INTERVAL_MS, CAP);
+      // rng=0 ⇒ jitter = -FIRST_WARM_JITTER_MS exactly.
+      expect(result).toBe(base - FIRST_WARM_JITTER_MS);
     });
 
-    it('uses windowEnd when intervalMs would push the random window past the cache TTL', () => {
-      // 50min into the window only ~5min remain; the user-chosen 55min
-      // interval would push past, so windowEnd dominates.
+    it('caps at anchor + WARM_THRESHOLD_MS so positive jitter never crosses the cache TTL', () => {
       const now = 10_000_000;
-      const session = makeSession({ lastAssistantTimestamp: now - 50 * 60_000 });
-      const windowEnd = session.lastAssistantTimestamp + WARM_THRESHOLD_MS;
-      const result = nextFirstWarm(session, now, () => 0.9999, DEFAULT_INTERVAL_MS);
-      expect(result).toBeGreaterThan(now);
-      expect(result).toBeLessThan(windowEnd);
+      const anchor = now - 5 * 60_000;
+      // rng→1 would push the result above the TTL without the upper clamp.
+      const result = firstWarm(anchor, now, () => 0.9999, DEFAULT_INTERVAL_MS);
+      expect(result).toBeLessThanOrEqual(anchor + WARM_THRESHOLD_MS);
     });
 
-    it('prefers lastWarmedAt over lastAssistantTimestamp when present', () => {
+    it('honors a short --interval rather than waiting near the cache TTL boundary', () => {
+      // Session was just used; user picked --interval 1 (60s). The base
+      // time should be anchor + 60s (no cap applies), zero jitter at rng=0.5.
       const now = 10_000_000;
-      const session = makeSession({
-        lastAssistantTimestamp: now - 2 * WARM_THRESHOLD_MS,
-        lastWarmedAt: now - 60_000,
-      });
-      const result = nextFirstWarm(session, now, () => 0.5, DEFAULT_INTERVAL_MS);
-      expect(result).toBeGreaterThan(now);
-      expect(result).toBeLessThanOrEqual(session.lastWarmedAt! + WARM_THRESHOLD_MS);
+      const anchor = now;
+      const result = firstWarm(anchor, now, () => 0.5, 60_000);
+      expect(result).toBe(anchor + 60_000);
     });
 
-    it('property: result is always in [now, min(windowEnd, now+intervalMs)] for random rng samples', () => {
+    it('property: result is always in [now, anchor + WARM_THRESHOLD_MS] for random rng samples', () => {
       const now = 10_000_000;
       const offsetsMs = [0, 1_000, 60_000, 30 * 60_000, WARM_THRESHOLD_MS - 1];
       const intervalSamples = [60_000, 5 * 60_000, DEFAULT_INTERVAL_MS];
       const rngSamples = [0, 0.0001, 0.25, 0.5, 0.75, 0.9999];
       for (const offset of offsetsMs) {
-        const session = makeSession({ lastAssistantTimestamp: now - offset });
-        const windowEnd = session.lastAssistantTimestamp + WARM_THRESHOLD_MS;
+        const anchor = now - offset;
+        const ttl = anchor + WARM_THRESHOLD_MS;
         for (const intervalMs of intervalSamples) {
-          const upperBound = Math.min(windowEnd, now + intervalMs);
           for (const r of rngSamples) {
-            const result = nextFirstWarm(session, now, () => r, intervalMs);
+            const result = firstWarm(anchor, now, () => r, intervalMs);
             expect(result).toBeGreaterThanOrEqual(now);
-            expect(result).toBeLessThanOrEqual(upperBound);
+            expect(result).toBeLessThanOrEqual(ttl);
           }
         }
       }
     });
 
-    it('deterministic: identical (session, now, seeded rng, intervalMs) yields identical output', () => {
+    it('deterministic: identical inputs with a seeded rng yield identical output', () => {
       const now = 10_000_000;
-      const session = makeSession({ lastAssistantTimestamp: now - 5 * 60_000 });
-      const a = nextFirstWarm(session, now, seededRng([0.3, 0.7]), DEFAULT_INTERVAL_MS);
-      const b = nextFirstWarm(session, now, seededRng([0.3, 0.7]), DEFAULT_INTERVAL_MS);
+      const anchor = now - 5 * 60_000;
+      const a = firstWarm(anchor, now, seededRng([0.3, 0.7]), DEFAULT_INTERVAL_MS);
+      const b = firstWarm(anchor, now, seededRng([0.3, 0.7]), DEFAULT_INTERVAL_MS);
       expect(a).toBe(b);
     });
 
-    it('treats a non-positive intervalMs as 0 (defensive: returns now)', () => {
+    it('treats a non-positive intervalMs as 0', () => {
+      // intervalMs<=0 ⇒ base == anchor; for an old anchor the floor at `now` wins.
       const now = 10_000_000;
-      const session = makeSession({ lastAssistantTimestamp: now - 5 * 60_000 });
-      expect(nextFirstWarm(session, now, () => 0.9999, 0)).toBe(now);
-      expect(nextFirstWarm(session, now, () => 0.9999, -1000)).toBe(now);
+      const anchor = now - 5 * 60_000;
+      expect(firstWarm(anchor, now, () => 0.5, 0)).toBe(now);
+      expect(firstWarm(anchor, now, () => 0.5, -1000)).toBe(now);
     });
   });
 
-  describe('nextAfterSuccess', () => {
+  describe('nextWarm (post-success path: no jitter, no floor)', () => {
     it('returns warmTime + intervalMs when interval is below the safety cap', () => {
       // 1-min interval is well below the cap, so no clamp.
-      const cap = WARM_THRESHOLD_MS - SAFETY_MARGIN_MS;
       const intervalMs = 60_000;
-      expect(intervalMs).toBeLessThan(cap);
-      expect(nextAfterSuccess(1000, intervalMs)).toBe(1000 + intervalMs);
+      expect(intervalMs).toBeLessThan(CAP);
+      expect(nextWarm(1000, intervalMs)).toBe(1000 + intervalMs);
     });
 
     it('clamps the interval to (WARM_THRESHOLD_MS - SAFETY_MARGIN_MS) when larger', () => {
       // Default 55min interval == WARM_THRESHOLD_MS, which is above the cap
       // and so MUST be clamped down to leave headroom for the next TTL.
       const warmTime = 10_000_000;
-      const intervalMs = WARM_THRESHOLD_MS;
-      const cap = WARM_THRESHOLD_MS - SAFETY_MARGIN_MS;
-      expect(nextAfterSuccess(warmTime, intervalMs)).toBe(warmTime + cap);
+      expect(nextWarm(warmTime, WARM_THRESHOLD_MS)).toBe(warmTime + CAP);
     });
 
     it('returns warmTime + cap exactly at the threshold (boundary)', () => {
-      const cap = WARM_THRESHOLD_MS - SAFETY_MARGIN_MS;
-      expect(nextAfterSuccess(0, cap)).toBe(cap);
+      expect(nextWarm(0, CAP)).toBe(CAP);
     });
   });
 
