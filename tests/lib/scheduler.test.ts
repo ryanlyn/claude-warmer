@@ -84,6 +84,21 @@ describe('Scheduler', () => {
       expect(result).toHaveLength(1);
       expect(result[0].nextWarmAt).toBeNull();
     });
+
+    it('anchors first-warm on lastAssistantTimestamp, not lastWarmedAt', () => {
+      // A prior warm has already happened, but first-warm scheduling must
+      // anchor on the session's last user/assistant interaction. Construct
+      // a session where the two anchors would produce different upper bounds.
+      const lastAssistant = Date.now() - 30 * 60 * 1000;
+      const session = makeSession({
+        lastAssistantTimestamp: lastAssistant,
+        lastWarmedAt: Date.now() - 60 * 1000,
+      });
+      const result = scheduler.bootstrap([session], 55);
+      // Upper bound proves the anchor: capped at lastAssistant + WARM_THRESHOLD_MS,
+      // not lastWarmedAt + WARM_THRESHOLD_MS (which would extend ~29min later).
+      expect(result[0].nextWarmAt!).toBeLessThanOrEqual(lastAssistant + WARM_THRESHOLD_MS);
+    });
   });
 
   describe('runDueWarmups', () => {
