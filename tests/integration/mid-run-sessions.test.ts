@@ -1,9 +1,8 @@
 /**
- * Composed-system regression tests for B1 (refresh strips auto-selection)
- * and B3 (long tick clobbers refresh updates). These drive
- * App+Scheduler+reducer together through real-ish timer sequences so
- * regressions in the glue layer break them, not just unit-level reducer
- * changes.
+ * Composed-system tests for session arrivals that happen after the TUI is
+ * already warming. Drives App + Scheduler + reducer together through real-ish
+ * timer sequences so regressions in the glue layer break here, not just at the
+ * unit-reducer level.
  */
 import React, { type ReactNode } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -17,7 +16,7 @@ vi.mock('@inkjs/ui', () => ({
     React.createElement('ink-text', null, `[TextInput:${defaultValue ?? ''}]`),
 }));
 
-describe('integration: documented bug reproducers', () => {
+describe('integration: sessions arriving mid-run', () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: false });
   });
@@ -27,11 +26,11 @@ describe('integration: documented bug reproducers', () => {
     vi.clearAllMocks();
   });
 
-  it('B1: a session created mid-run is eventually warmed', async () => {
+  it('a session created after warming starts is eventually warmed', async () => {
     // User launches the TUI with one existing warm session, turns warming on,
-    // then starts a NEW claude session a few minutes later. With B1 fixed,
-    // mergeDiscoverySnapshot preserves discovery's `selected: isWarm`, so the new
-    // session joins the schedule and gets warmed during the 2-hour window.
+    // then starts a NEW claude session a few minutes later. The discovery
+    // refresh must preserve `selected: isWarm` for the new session so it joins
+    // the schedule and gets warmed within the 2-hour window.
     const t0 = new Date('2026-04-20T12:00:00Z');
     vi.setSystemTime(t0);
 
@@ -64,23 +63,21 @@ describe('integration: documented bug reproducers', () => {
       buildJsonl({ projectDir: 'proj', sessionId: 'new', lastAssistantAt: t1 }),
     );
 
-    // Walk 2h so the new session would have been warmed twice if selected.
+    // Walk 2h so the new session would have been warmed at least once if selected.
     for (let elapsed = 0; elapsed < 2 * 60 * 60 * 1000; elapsed += 30_000) {
       await vi.advanceTimersByTimeAsync(30_000);
     }
 
-    // Expected correct behavior: 'new' is warmed at least once.
-    // Actual: zero warms against 'new'.
     const newCalls = calls.filter((c) => c.sessionId === 'new');
     expect(newCalls.length).toBeGreaterThanOrEqual(1);
 
     unmount();
   }, 20_000);
 
-  it('B3: a new session arriving mid-tick survives the tick result', async () => {
+  it('a session added by refresh is not clobbered by an in-flight tick result', async () => {
     // Tick fires, warmFn is in flight for many seconds, refresh adds a new
-    // session during that window. With B3 fixed, WARM_PATCHES_RECEIVED applies
-    // narrow warm facts so the refresh-added session survives the result.
+    // session during that window. The warm result must apply narrow patches to
+    // the warmed session so the refresh-added session survives.
     const t0 = new Date('2026-04-20T12:00:00Z');
     vi.setSystemTime(t0);
 
@@ -172,8 +169,6 @@ describe('integration: documented bug reproducers', () => {
     });
     await vi.advanceTimersByTimeAsync(100);
 
-    // Expected correct behavior: BrandNewArrival still rendered.
-    // Under B3 it is clobbered and this assertion fails.
     expect(lastFrame()).toContain('BrandNewArrival');
 
     unmount();
