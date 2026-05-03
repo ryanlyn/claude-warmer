@@ -1,41 +1,38 @@
-import type { Session } from './types.js';
 import { WARM_THRESHOLD_MS, SAFETY_MARGIN_MS, BACKOFF_SCHEDULE_MS } from './types.js';
 
 // Pure scheduling policy. Side-effect-free so the arithmetic can be tested
 // without fake timers or mocked warmers, and so alternative policies (e.g.
 // bounded retry backoff) can be swapped in without touching orchestration.
 
-// Schedule the first warm for a selected session.
-//
-// Cold sessions (cache window already lapsed) fire immediately. Warm sessions
-// pick a random point in `[now, upperBound)` where the upper bound is the
-// nearer of (a) the cache-anchor TTL boundary and (b) one user-chosen
-// `intervalMs` from now. The intervalMs cap matters when the user picks a
-// short interval (e.g. `-i 1`) to validate the warmer end-to-end against an
-// already-warm session - without it the first warm could fire up to 55min
-// later, regardless of what `--interval` says, because the cache TTL window
-// dominates.
-export function nextFirstWarm(session: Session, now: number, rng: () => number, intervalMs: number): number {
-  const anchor = session.lastWarmedAt ?? session.lastAssistantTimestamp;
-  const windowEnd = anchor + WARM_THRESHOLD_MS;
-
-  if (windowEnd <= now) {
-    return now;
-  }
-
-  const intervalBound = now + Math.max(intervalMs, 0);
-  const upperBound = Math.min(windowEnd, intervalBound);
-  if (upperBound <= now) return now;
-  const remaining = upperBound - now;
-  return now + Math.floor(rng() * remaining);
+export interface NextWarmOpts {
+  // Random source + magnitude for symmetric jitter around the base time.
+  // Omit for deterministic scheduling (post-success path).
+  jitter?: { rng: () => number; magnitudeMs: number };
+  // Lower-bound floor for the result. Used by the first-warm path so a cold
+  // session (anchor far in the past) fires immediately rather than at a
+  // computed past time.
+  now?: number;
 }
 
-// Clamp the user-chosen interval against `WARM_THRESHOLD_MS - SAFETY_MARGIN_MS`
-// so the next warm always has headroom against the 60-min cache TTL even when
-// many sessions are warmed sequentially in the same tick.
-export function nextAfterSuccess(warmTime: number, intervalMs: number): number {
+// Compute the next warm time for a session.
+//
+// Shared by the first-warm path (anchored on the session's last interaction
+// time, with ±jitter and a `now` floor) and the post-success path (anchored
+// on the most recent warm time, no jitter, no floor):
+//
+//   base      = anchor + min(intervalMs, WARM_THRESHOLD_MS - SAFETY_MARGIN_MS)
+//   candidate = min(base ± jitter, anchor + WARM_THRESHOLD_MS)
+//   result    = max(opts.now, candidate)
+//
+// The `cap` (50min) leaves headroom for cumulative serial-warm latency
+// against the 60-min cache TTL. The upper clamp at `anchor + WARM_THRESHOLD_MS`
+// keeps positive jitter from crossing the TTL.
+export function nextWarm(anchor: number, intervalMs: number, opts: NextWarmOpts = {}): number {
   const cap = WARM_THRESHOLD_MS - SAFETY_MARGIN_MS;
-  return warmTime + Math.min(intervalMs, cap);
+  const base = anchor + Math.min(Math.max(intervalMs, 0), cap);
+  const jitter = opts.jitter ? Math.floor((opts.jitter.rng() - 0.5) * 2 * opts.jitter.magnitudeMs) : 0;
+  const candidate = Math.min(base + jitter, anchor + WARM_THRESHOLD_MS);
+  return Math.max(opts.now ?? -Infinity, candidate);
 }
 
 // Bounded retry backoff: retry quickly on transient errors so the cache

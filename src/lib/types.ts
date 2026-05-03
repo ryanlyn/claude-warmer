@@ -97,6 +97,11 @@ export const WARM_THRESHOLD_MS = 55 * 60 * 1000;
 // WARM_THRESHOLD_MS.
 export const SAFETY_MARGIN_MS = 5 * 60 * 1000;
 
+// Symmetric jitter applied to the first-warm time so multiple sessions
+// bootstrapped together don't all warm at the same instant. Final time is
+// clamped to never cross the cache TTL.
+export const FIRST_WARM_JITTER_MS = 5 * 60 * 1000;
+
 // Bounded retry backoff for transient warm failures. Indexed by
 // `consecutiveErrors`; values past the end saturate at the last entry.
 // Capped further by `intervalMs` so extremely-short user intervals still

@@ -1,5 +1,6 @@
 import type { Session, WarmFn, WarmPatch } from './types.js';
-import { nextFirstWarm, nextAfterSuccess, nextAfterError } from './scheduler-policy.js';
+import { FIRST_WARM_JITTER_MS } from './types.js';
+import { nextWarm, nextAfterError } from './scheduler-policy.js';
 import { realClock, type Clock, type Random } from './deps.js';
 
 export class Scheduler {
@@ -21,7 +22,14 @@ export class Scheduler {
       if (!s.selected) {
         return { ...s, nextWarmAt: null };
       }
-      return { ...s, nextWarmAt: nextFirstWarm(s, now, this.rng, intervalMs) };
+      return { ...s, nextWarmAt: this.firstWarm(s, now, intervalMs) };
+    });
+  }
+
+  private firstWarm(session: Session, now: number, intervalMs: number): number {
+    return nextWarm(session.lastAssistantTimestamp, intervalMs, {
+      jitter: { rng: this.rng, magnitudeMs: FIRST_WARM_JITTER_MS },
+      now,
     });
   }
 
@@ -59,7 +67,7 @@ export class Scheduler {
           type: 'succeeded',
           sessionId: s.sessionId,
           warmedAt: warmTime,
-          nextWarmAt: nextAfterSuccess(warmTime, intervalMs),
+          nextWarmAt: nextWarm(warmTime, intervalMs),
           usage: result.usage,
           model: result.model || s.model,
           costUsd: result.costUsd,
@@ -73,7 +81,7 @@ export class Scheduler {
   scheduleFirstWarm(session: Session, intervalMinutes: number): Session {
     const now = this.clock.now();
     const intervalMs = intervalMinutes * 60 * 1000;
-    return { ...session, nextWarmAt: nextFirstWarm(session, now, this.rng, intervalMs) };
+    return { ...session, nextWarmAt: this.firstWarm(session, now, intervalMs) };
   }
 
   unscheduleWarm(session: Session): Session {
