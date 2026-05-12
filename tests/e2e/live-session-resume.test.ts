@@ -18,13 +18,15 @@
  * Cost: ~3 small warm prompts (≈$0.01). Pollutes ~/.claude with 1-2 test
  * sessions, same as the existing e2e suite.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it } from '@std/testing/bdd';
+import { expect } from '@std/expect';
 import * as pty from 'node-pty';
+import process from 'node:process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { warmSession, resetClaudePath } from '../../src/lib/warmer.js';
+import { resetClaudePath, warmSession } from '../../src/lib/warmer.ts';
 
 const CWD = process.cwd();
 const PROJECT_DIR = '-' + CWD.replace(/\//g, '-').slice(1);

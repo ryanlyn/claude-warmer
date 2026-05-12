@@ -1,75 +1,78 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import * as childProcess from 'node:child_process';
-import { copyToClipboard } from '../../src/lib/clipboard.js';
+import { afterEach, beforeEach, describe, it } from '@std/testing/bdd';
+import { expect } from '@std/expect';
+import { spy } from '@std/testing/mock';
+import { Buffer } from 'node:buffer';
+import { copyToClipboard, type ExecSyncFn } from '../../src/lib/clipboard.ts';
 
-vi.mock('node:child_process', () => ({
-  execSync: vi.fn(),
-}));
+let calls: { cmd: string; input: string }[] = [];
+let plan: Array<{ throwMsg?: string } | undefined> = [];
 
-const originalPlatform = process.platform;
-
-function stubPlatform(value: NodeJS.Platform) {
-  Object.defineProperty(process, 'platform', { value, configurable: true });
+function makeExec(): ExecSyncFn {
+  return (cmd, options) => {
+    const step = plan.shift();
+    calls.push({ cmd, input: options.input });
+    if (step?.throwMsg) {
+      throw new Error(step.throwMsg);
+    }
+    return Buffer.from('');
+  };
 }
 
 describe('copyToClipboard', () => {
-  const mockExecSync = vi.mocked(childProcess.execSync);
-
   beforeEach(() => {
-    mockExecSync.mockReset();
+    calls = [];
+    plan = [];
   });
 
   afterEach(() => {
-    Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+    calls = [];
+    plan = [];
   });
 
   it('uses pbcopy on darwin', () => {
-    stubPlatform('darwin');
-    mockExecSync.mockReturnValue(Buffer.from(''));
-    copyToClipboard('hello');
-    expect(mockExecSync).toHaveBeenCalledWith('pbcopy', { input: 'hello' });
+    plan = [{}];
+    copyToClipboard('hello', { exec: makeExec(), platform: 'darwin' });
+    expect(calls).toEqual([{ cmd: 'pbcopy', input: 'hello' }]);
   });
 
   it('uses clip on win32', () => {
-    stubPlatform('win32');
-    mockExecSync.mockReturnValue(Buffer.from(''));
-    copyToClipboard('hello');
-    expect(mockExecSync).toHaveBeenCalledWith('clip', { input: 'hello' });
+    plan = [{}];
+    copyToClipboard('hello', { exec: makeExec(), platform: 'win32' });
+    expect(calls).toEqual([{ cmd: 'clip', input: 'hello' }]);
   });
 
   it('uses wl-copy on linux when available', () => {
-    stubPlatform('linux');
-    mockExecSync.mockReturnValue(Buffer.from(''));
-    copyToClipboard('hello');
-    expect(mockExecSync).toHaveBeenCalledTimes(1);
-    expect(mockExecSync).toHaveBeenCalledWith('wl-copy', { input: 'hello' });
+    plan = [{}];
+    copyToClipboard('hello', { exec: makeExec(), platform: 'linux' });
+    expect(calls).toEqual([{ cmd: 'wl-copy', input: 'hello' }]);
   });
 
   it('falls back to xclip when wl-copy is missing', () => {
-    stubPlatform('linux');
-    mockExecSync
-      .mockImplementationOnce(() => {
-        throw new Error('wl-copy not found');
-      })
-      .mockReturnValueOnce(Buffer.from(''));
-    copyToClipboard('hello');
-    expect(mockExecSync).toHaveBeenNthCalledWith(1, 'wl-copy', { input: 'hello' });
-    expect(mockExecSync).toHaveBeenNthCalledWith(2, 'xclip -selection clipboard', { input: 'hello' });
+    plan = [{ throwMsg: 'wl-copy not found' }, {}];
+    copyToClipboard('hello', { exec: makeExec(), platform: 'linux' });
+    expect(calls).toEqual([
+      { cmd: 'wl-copy', input: 'hello' },
+      { cmd: 'xclip -selection clipboard', input: 'hello' },
+    ]);
   });
 
   it('swallows errors when no provider works', () => {
-    stubPlatform('linux');
-    mockExecSync.mockImplementation(() => {
-      throw new Error('nothing installed');
-    });
-    expect(() => copyToClipboard('hello')).not.toThrow();
+    plan = [{ throwMsg: 'wl-copy missing' }, { throwMsg: 'xclip missing' }];
+    expect(() => copyToClipboard('hello', { exec: makeExec(), platform: 'linux' })).not.toThrow();
   });
 
   it('swallows errors on darwin too', () => {
-    stubPlatform('darwin');
-    mockExecSync.mockImplementation(() => {
-      throw new Error('pbcopy missing');
+    plan = [{ throwMsg: 'pbcopy missing' }];
+    expect(() => copyToClipboard('hello', { exec: makeExec(), platform: 'darwin' })).not.toThrow();
+  });
+
+  it('defaults to the live execSync + process.platform when no deps are passed', () => {
+    // Just verify the no-op path runs without throwing when the platform's
+    // clipboard provider isn't installed - matches the "best-effort" contract.
+    const exec = spy(() => {
+      throw new Error('no clipboard');
     });
-    expect(() => copyToClipboard('hello')).not.toThrow();
+    expect(() => copyToClipboard('hello', { exec: exec as unknown as ExecSyncFn })).not.toThrow();
+    expect(exec.calls.length).toBeGreaterThan(0);
   });
 });

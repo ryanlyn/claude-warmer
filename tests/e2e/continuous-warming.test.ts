@@ -23,16 +23,18 @@
  * test session.
  */
 import React, { type ReactNode } from 'react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it } from '@std/testing/bdd';
+import { expect } from '@std/expect';
 import { render } from 'ink-testing-library';
 import * as pty from 'node-pty';
+import process from 'node:process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { App } from '../../src/app.js';
-import { resetClaudePath } from '../../src/lib/warmer.js';
-import { realFs, type Fs } from '../../src/lib/deps.js';
+import { App } from '../../src/app.tsx';
+import { resetClaudePath } from '../../src/lib/warmer.ts';
+import { type Fs, realFs } from '../../src/lib/deps.ts';
 
 const CWD = process.cwd();
 const PROJECT_DIR = '-' + CWD.replace(/\//g, '-').slice(1);
@@ -40,27 +42,6 @@ const PROJECTS_ROOT = path.join(os.homedir(), '.claude', 'projects', PROJECT_DIR
 const PROMPT = "Reply 'ok'";
 const REPL_READY_MS = 12_000;
 const TEST_TIMEOUT_MS = 360_000;
-
-vi.mock('node:child_process', async () => {
-  const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process');
-  // Real execFileSync for the warmer's `which claude`; stub execSync so the
-  // 'c' (copy) keybinding doesn't try to invoke pbcopy in the test process.
-  return { ...actual, execSync: () => Buffer.from('') };
-});
-vi.mock('@inkjs/ui', () => ({
-  TextInput: ({
-    defaultValue,
-    onSubmit,
-  }: {
-    defaultValue?: string;
-    onSubmit?: (v: string) => void;
-    children?: ReactNode;
-  }) =>
-    // ink-testing-library doesn't drive @inkjs/ui's TextInput, so we render a
-    // plain marker and expose onSubmit through a global stash that the test
-    // can call directly when it edits the prompt.
-    React.createElement(StubbedTextInput, { defaultValue, onSubmit }),
-}));
 
 let pendingSubmit: ((v: string) => void) | null = null;
 function StubbedTextInput({
@@ -190,10 +171,15 @@ describe('e2e: continuous warming of selected session under TUI mutations', () =
           intervalMinutes: 0.05, // 3s warm interval
           warmPrompt: PROMPT,
           deps: {
-            random: () => 0, // bootstrap picks earliest slot
+            random: () => 0,
             tickIntervalMs: 2_000,
             refreshIntervalMs: 4_000,
             fs: scopedFs(PROJECT_DIR, `${seed.sessionId}.jsonl`),
+            copyToClipboard: () => {},
+            TextInput: ({ defaultValue, onSubmit }) => {
+              pendingSubmit = onSubmit ?? null;
+              return React.createElement('ink-text', null, `[input:${defaultValue ?? ''}]`);
+            },
           },
         }),
       );

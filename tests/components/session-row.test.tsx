@@ -1,9 +1,10 @@
 import React from 'react';
-import { describe, it, expect } from 'vitest';
+import { describe, it } from '@std/testing/bdd';
+import { expect } from '@std/expect';
 import { render } from 'ink-testing-library';
-import { SessionRow } from '../../src/components/session-row.js';
-import type { Session } from '../../src/lib/types.js';
-import { computeLayout } from '../../src/lib/layout.js';
+import { SessionRow } from '../../src/components/session-row.tsx';
+import type { Session } from '../../src/lib/types.ts';
+import { computeLayout } from '../../src/lib/layout.ts';
 
 // ink-testing-library renders without a TTY, so content may wrap at narrow widths.
 // Use a narrow layout to minimize total row width and avoid wrapping artifacts.
@@ -33,7 +34,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
   };
 }
 
-describe('SessionRow', () => {
+describe({ name: 'SessionRow', sanitizeOps: false, sanitizeResources: false }, () => {
   it('renders session name', () => {
     const { lastFrame } = render(
       <SessionRow session={makeSession()} highlighted={false} layout={layout} warmingEnabled={false} />,
@@ -276,7 +277,7 @@ describe('SessionRow', () => {
   it('shows green badge when warming is active and session is selected and warm', () => {
     const session = makeSession({ isWarm: true, selected: true });
     const { lastFrame } = render(
-      <SessionRow session={session} highlighted={false} layout={layout} warmingEnabled={true} />,
+      <SessionRow session={session} highlighted={false} layout={layout} warmingEnabled />,
     );
     const frame = lastFrame()!;
     expect(frame).toContain('[w]');
@@ -294,7 +295,7 @@ describe('SessionRow', () => {
   it('shows yellow badge when warming is active but session is not selected', () => {
     const session = makeSession({ isWarm: true, selected: false });
     const { lastFrame } = render(
-      <SessionRow session={session} highlighted={false} layout={layout} warmingEnabled={true} />,
+      <SessionRow session={session} highlighted={false} layout={layout} warmingEnabled />,
     );
     const frame = lastFrame()!;
     expect(frame).toContain('[w]');
@@ -303,7 +304,7 @@ describe('SessionRow', () => {
   it('shows cold badge for cold sessions even if warming active', () => {
     const session = makeSession({ isWarm: false, isLive: false, selected: true });
     const { lastFrame } = render(
-      <SessionRow session={session} highlighted={false} layout={layout} warmingEnabled={true} />,
+      <SessionRow session={session} highlighted={false} layout={layout} warmingEnabled />,
     );
     const frame = lastFrame()!;
     expect(frame).toContain('[c]');
@@ -346,7 +347,7 @@ describe('SessionRow', () => {
   it('uses green text for actively warming rows', () => {
     const session = makeSession({ isWarm: true, selected: true });
     const { lastFrame } = render(
-      <SessionRow session={session} highlighted={false} layout={layout} warmingEnabled={true} />,
+      <SessionRow session={session} highlighted={false} layout={layout} warmingEnabled />,
     );
     // We can't easily test color in ink-testing-library but we verify it renders without error
     expect(lastFrame()!).toContain('Test Session');

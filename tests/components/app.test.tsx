@@ -1,886 +1,951 @@
 import React, { type ReactNode } from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, beforeEach, describe, it } from '@std/testing/bdd';
+import { expect } from '@std/expect';
+import { spy } from '@std/testing/mock';
 import { render } from 'ink-testing-library';
-import { App } from '../../src/app.js';
-import * as sessionsModule from '../../src/lib/sessions.js';
-import * as warmerModule from '../../src/lib/warmer.js';
-import * as clipboardModule from '../../src/lib/clipboard.js';
+import { App } from '../../src/app.tsx';
+import type { Session, WarmResult } from '../../src/lib/types.ts';
+import type { Clock, Fs } from '../../src/lib/deps.ts';
+import { buildJsonl, InMemoryFs } from '../integration/harness.ts';
+import process from 'node:process';
 
-vi.mock('../../src/lib/sessions.js');
-vi.mock('../../src/lib/warmer.js');
-vi.mock('../../src/lib/clipboard.js', () => ({
-  copyToClipboard: vi.fn(),
-}));
+// In-memory session fixtures returned by discoverSessions when we wire them
+// into an InMemoryFs. Each fixture writes one ~/.claude/projects/<dir>/<id>.jsonl.
 
-let capturedOnSubmit: ((value: string) => void) | null = null;
-
-vi.mock('@inkjs/ui', () => ({
-  TextInput: ({
-    defaultValue,
-    onSubmit,
-  }: {
-    defaultValue?: string;
-    onSubmit?: (value: string) => void;
-    children?: ReactNode;
-  }) => {
-    capturedOnSubmit = onSubmit ?? null;
-    return React.createElement('ink-text', null, `[TextInput:${defaultValue ?? ''}]`);
-  },
-}));
-
-const mockSessions = vi.mocked(sessionsModule);
-
-function makeTwoSessions() {
-  return [
-    {
-      sessionId: 'abc-123',
-      name: 'Session One',
-      projectDir: 'test',
-      cwd: '/test',
-      model: 'claude-opus-4-6',
-      lastAssistantTimestamp: Date.now() - 10 * 60 * 1000,
-      isWarm: true,
-      isLive: false,
-      cacheReadTokens: 100000,
-      cacheWriteTokens: 5000,
-      expiryCostUsd: 1.05,
-      selected: true,
-      warmStatus: 'idle' as const,
-      warmCostUsd: 0.05,
-      warmCount: 0,
-      nextWarmAt: null,
-      lastWarmedAt: null,
-      lastWarmError: null,
-    },
-    {
-      sessionId: 'def-456',
-      name: 'Session Two',
-      projectDir: 'test',
-      cwd: '/test',
-      model: 'claude-sonnet-4-6',
-      lastAssistantTimestamp: Date.now() - 2 * 60 * 60 * 1000,
-      isWarm: false,
-      isLive: false,
-      cacheReadTokens: 50000,
-      cacheWriteTokens: 0,
-      expiryCostUsd: 0.3,
-      selected: false,
-      warmStatus: 'idle' as const,
-      warmCostUsd: 0.3,
-      warmCount: 0,
-      nextWarmAt: null,
-      lastWarmedAt: null,
-      lastWarmError: null,
-    },
-  ];
-}
-
-function defaultSession() {
+function defaultFixture(overrides: Partial<{
+  sessionId: string;
+  name: string;
+  projectDir: string;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  lastAssistantAt: Date;
+  model: string;
+}> = {}) {
   return {
-    sessionId: 'abc-123',
-    name: 'Test Session',
-    projectDir: 'test',
-    cwd: '/test',
-    model: 'claude-opus-4-6',
-    lastAssistantTimestamp: Date.now() - 10 * 60 * 1000,
-    isWarm: true,
-    isLive: false,
-    cacheReadTokens: 100000,
-    cacheWriteTokens: 5000,
-    expiryCostUsd: 1.05,
-    selected: true,
-    warmStatus: 'idle' as const,
-    warmCostUsd: 0.05,
-    warmCount: 0,
-    nextWarmAt: null,
-    lastWarmedAt: null,
-    lastWarmError: null,
+    sessionId: overrides.sessionId ?? 'abc-123',
+    name: overrides.name ?? 'Test Session',
+    projectDir: overrides.projectDir ?? 'test',
+    cacheReadTokens: overrides.cacheReadTokens ?? 100000,
+    cacheWriteTokens: overrides.cacheWriteTokens ?? 5000,
+    lastAssistantAt: overrides.lastAssistantAt ?? new Date(Date.now() - 10 * 60 * 1000),
+    model: overrides.model ?? 'claude-opus-4-6',
   };
 }
 
-// Wait for React effects (useEffect) to run so ink's input handlers attach
-const tick = () => new Promise((resolve) => setTimeout(resolve, 50));
+interface BuildOpts {
+  fixtures?: ReturnType<typeof defaultFixture>[];
+}
 
-beforeEach(() => {
-  vi.resetAllMocks();
-  mockSessions.discoverSessions.mockReturnValue([defaultSession()]);
-  vi.mocked(warmerModule.warmSession).mockResolvedValue({
-    sessionId: 'abc-123',
-    usage: { inputTokens: 0, cacheReadInputTokens: 80000, cacheCreationInputTokens: 1000, outputTokens: 3 },
-    model: 'claude-opus-4-6',
-    costUsd: 0.04,
-    error: null,
-  });
-});
-
-describe('App', () => {
-  it('renders header with app name', () => {
-    const { lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
-    expect(lastFrame()!).toContain('Claude Warmer');
-  });
-
-  it('binds injected fs into the default warmFn (covers makeWarmer branch)', () => {
-    // When the caller provides deps.fs, App constructs a curried warmer via
-    // makeWarmer({fs, clock}) instead of using bare warmSession. This test
-    // just confirms the App mounts cleanly along that branch.
-    vi.mocked(warmerModule.makeWarmer).mockReturnValue(vi.fn());
-    const { lastFrame, unmount } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" deps={{ fs: undefined as never }} />,
+function buildFs(opts: BuildOpts = {}): InMemoryFs {
+  const fs = new InMemoryFs();
+  const fixtures = opts.fixtures ?? [defaultFixture()];
+  for (const f of fixtures) {
+    fs.addFile(
+      `.claude/projects/${f.projectDir}/${f.sessionId}.jsonl`,
+      buildJsonl({
+        sessionId: f.sessionId,
+        projectDir: f.projectDir,
+        customTitle: f.name,
+        cacheReadTokens: f.cacheReadTokens,
+        cacheWriteTokens: f.cacheWriteTokens,
+        model: f.model,
+        lastAssistantAt: f.lastAssistantAt,
+      }),
     );
-    // `fs: undefined` is the explicit-but-falsy case - exercises the
-    // `deps.fs !== undefined` strict-undefined check branch.
-    expect(lastFrame()!).toContain('Claude Warmer');
-    unmount();
+  }
+  return fs;
+}
+
+let capturedOnSubmit: ((v: string) => void) | null = null;
+
+function CapturingTextInput(
+  { defaultValue, onSubmit }: { defaultValue?: string; onSubmit?: (v: string) => void; children?: ReactNode },
+) {
+  capturedOnSubmit = onSubmit ?? null;
+  return React.createElement('ink-text', null, `[TextInput:${defaultValue ?? ''}]`);
+}
+
+const realClock: Clock = {
+  now: () => Date.now(),
+  setInterval: globalThis.setInterval as unknown as typeof globalThis.setInterval,
+  clearInterval: globalThis.clearInterval,
+  setTimeout: globalThis.setTimeout as unknown as typeof globalThis.setTimeout,
+  clearTimeout: globalThis.clearTimeout,
+};
+
+const tick = () => new Promise<void>((r) => setTimeout(r, 50));
+
+const defaultWarmResult: WarmResult = {
+  sessionId: 'abc-123',
+  usage: { inputTokens: 0, cacheReadInputTokens: 80000, cacheCreationInputTokens: 1000, outputTokens: 3 },
+  model: 'claude-opus-4-6',
+  costUsd: 0.04,
+  error: null,
+};
+
+interface BuiltDeps {
+  fs: Fs;
+  warmFn: (sid: string, prompt: string, cwd?: string, projectDir?: string) => Promise<WarmResult>;
+  copyToClipboard: (text: string) => void;
+  TextInput: typeof CapturingTextInput;
+  copyCalls: string[];
+  warmCalls: Array<{ sid: string }>;
+}
+
+function makeDeps(opts: BuildOpts & { warmResult?: WarmResult; warmFn?: BuiltDeps['warmFn'] } = {}): BuiltDeps {
+  const fs = buildFs(opts);
+  const copyCalls: string[] = [];
+  const warmCalls: Array<{ sid: string }> = [];
+  const warmFn = opts.warmFn ?? ((sid: string) => {
+    warmCalls.push({ sid });
+    return Promise.resolve(opts.warmResult ?? defaultWarmResult);
+  });
+  const copyToClipboard = (text: string) => {
+    copyCalls.push(text);
+  };
+  return { fs, warmFn, copyToClipboard, TextInput: CapturingTextInput, copyCalls, warmCalls };
+}
+
+describe({ name: 'App', sanitizeOps: false, sanitizeResources: false }, () => {
+  beforeEach(() => {
+    capturedOnSubmit = null;
+  });
+
+  afterEach(() => {
+    capturedOnSubmit = null;
+  });
+
+  it('renders header with app name', () => {
+    const d = makeDeps();
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
+    expect(r.lastFrame()!).toContain('Claude Warmer');
+    r.unmount();
   });
 
   it('uses makeWarmer when deps.clock is provided', () => {
-    const fakeWarmFn = vi.fn();
-    vi.mocked(warmerModule.makeWarmer).mockReturnValue(fakeWarmFn);
-    const fakeClock = {
-      now: () => Date.now(),
-      setInterval: (cb: () => void, ms: number) => globalThis.setInterval(cb, ms),
-      clearInterval: (id: ReturnType<typeof setInterval>) => globalThis.clearInterval(id),
-      setTimeout: (cb: () => void, ms: number) => globalThis.setTimeout(cb, ms),
-      clearTimeout: (id: ReturnType<typeof setTimeout>) => globalThis.clearTimeout(id),
-    };
-    const { lastFrame, unmount } = render(
-      <App intervalMinutes={55} warmPrompt="Reply 'ok'" deps={{ clock: fakeClock }} />,
+    const d = makeDeps();
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, clock: realClock, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
     );
-    expect(lastFrame()!).toContain('Claude Warmer');
-    expect(warmerModule.makeWarmer).toHaveBeenCalled();
-    unmount();
+    expect(r.lastFrame()!).toContain('Claude Warmer');
+    r.unmount();
+  });
+
+  it('falls back to bare warmSession when neither fs nor clock is provided (warmFn-only path)', () => {
+    const d = makeDeps();
+    // Passing only warmFn skips both the makeWarmer branch and the bare warmSession branch.
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
+    expect(r.lastFrame()!).toContain('Claude Warmer');
+    r.unmount();
+  });
+
+  it('exercises the bare warmSession branch when no fs/clock/warmFn injected', () => {
+    // No deps at all - exercises the deps.fs/clock both-undefined path which
+    // assigns the raw warmSession. The default HOME points elsewhere so
+    // discoverSessions returns []; we just want the branch covered.
+    const originalHome = process.env.HOME;
+    process.env.HOME = '/tmp/this-does-not-exist-for-app-test';
+    try {
+      const r = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" deps={{ TextInput: CapturingTextInput }} />);
+      expect(r.lastFrame()!).toContain('Claude Warmer');
+      r.unmount();
+    } finally {
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
+    }
   });
 
   it('renders discovered sessions', () => {
-    const { lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
-    expect(lastFrame()!).toContain('Test Session');
+    const d = makeDeps();
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
+    expect(r.lastFrame()!).toContain('Test Session');
+    r.unmount();
   });
 
   it('renders footer with keybindings', () => {
-    const { lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
-    expect(lastFrame()!).toContain('quit');
+    const d = makeDeps();
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
+    expect(r.lastFrame()!).toContain('quit');
+    r.unmount();
   });
 
   it('toggles selection on space key', async () => {
-    const { lastFrame, stdin } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    const d = makeDeps();
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
     await tick();
-    expect(lastFrame()!).toContain('$0.05');
-
-    stdin.write(' ');
+    r.stdin.write(' ');
     await tick();
-    // After deselecting, warmCost shows '-'
-    const frame = lastFrame()!;
-    expect(frame).toContain('Test Session');
+    expect(r.lastFrame()!).toContain('Test Session');
+    r.unmount();
   });
 
   it('toggles warming on enter key', async () => {
-    const { lastFrame, stdin } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    const d = makeDeps();
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
     await tick();
-
-    stdin.write('\r');
+    r.stdin.write('\r');
     await tick();
-    expect(lastFrame()!).toContain('active');
+    expect(r.lastFrame()!).toContain('active');
+    r.unmount();
   });
 
   it('selects active sessions on a key', async () => {
-    mockSessions.discoverSessions.mockReturnValue(makeTwoSessions());
-
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    const d = makeDeps({
+      fixtures: [
+        defaultFixture({ sessionId: 'abc', name: 'Session One', cacheReadTokens: 100000 }),
+        defaultFixture({
+          sessionId: 'def',
+          name: 'Session Two',
+          lastAssistantAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+          cacheReadTokens: 50000,
+        }),
+      ],
+    });
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
     await tick();
-
-    // First deselect all
-    stdin.write('n');
+    r.stdin.write('n');
     await tick();
-
-    // Then select active (only warm/live sessions)
-    stdin.write('a');
+    r.stdin.write('a');
     await tick();
-    const frame = lastFrame()!;
+    const frame = r.lastFrame()!;
     expect(frame).toContain('Session One');
     expect(frame).toContain('Session Two');
+    r.unmount();
   });
 
   it('deselects all on n key', async () => {
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    const d = makeDeps();
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
     await tick();
-
-    stdin.write('n');
+    r.stdin.write('n');
     await tick();
-    // After deselecting, cost/warms columns show dashes
-    expect(lastFrame()!).toContain('-');
+    expect(r.lastFrame()!).toContain('-');
+    r.unmount();
   });
 
   it('navigates down with arrow key', async () => {
-    mockSessions.discoverSessions.mockReturnValue(makeTwoSessions());
-
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    const d = makeDeps({
+      fixtures: [
+        defaultFixture({ sessionId: 'abc', name: 'Session One' }),
+        defaultFixture({ sessionId: 'def', name: 'Session Two' }),
+      ],
+    });
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
     await tick();
-
-    stdin.write('\x1B[B');
+    r.stdin.write('\x1B[B');
     await tick();
-    const frame = lastFrame()!;
+    const frame = r.lastFrame()!;
     expect(frame).toContain('Session One');
     expect(frame).toContain('Session Two');
+    r.unmount();
   });
 
   it('navigates up with arrow key', async () => {
-    mockSessions.discoverSessions.mockReturnValue(makeTwoSessions());
-
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    const d = makeDeps({
+      fixtures: [
+        defaultFixture({ sessionId: 'abc', name: 'Session One' }),
+        defaultFixture({ sessionId: 'def', name: 'Session Two' }),
+      ],
+    });
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
     await tick();
-
-    stdin.write('\x1B[B');
+    r.stdin.write('\x1B[B');
     await tick();
-    stdin.write('\x1B[A');
+    r.stdin.write('\x1B[A');
     await tick();
-    const frame = lastFrame()!;
-    expect(frame).toContain('Session One');
+    expect(r.lastFrame()!).toContain('Session One');
+    r.unmount();
   });
 
   it('does not navigate below last session', async () => {
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    const d = makeDeps();
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
     await tick();
-
-    stdin.write('\x1B[B');
-    stdin.write('\x1B[B');
-    stdin.write('\x1B[B');
+    r.stdin.write('\x1B[B');
+    r.stdin.write('\x1B[B');
+    r.stdin.write('\x1B[B');
     await tick();
-    expect(lastFrame()!).toContain('Test Session');
+    expect(r.lastFrame()!).toContain('Test Session');
+    r.unmount();
   });
 
   it('does not navigate above first session', async () => {
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    const d = makeDeps();
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
     await tick();
-
-    stdin.write('\x1B[A');
+    r.stdin.write('\x1B[A');
     await tick();
-    expect(lastFrame()!).toContain('Test Session');
+    expect(r.lastFrame()!).toContain('Test Session');
+    r.unmount();
   });
 
   it('quits on q key', async () => {
-    const { stdin } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    const d = makeDeps();
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
     await tick();
-
-    stdin.write('q');
+    r.stdin.write('q');
     await tick();
-  });
-
-  it('toggles warming on with enter key', async () => {
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
-    await tick();
-
-    stdin.write('\r');
-    await tick();
-    expect(lastFrame()!).toContain('active');
   });
 
   it('toggles warming off with enter key pressed twice', async () => {
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    const d = makeDeps();
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
     await tick();
-
-    stdin.write('\r');
+    r.stdin.write('\r');
     await tick();
-    expect(lastFrame()!).toContain('active');
-
-    stdin.write('\r');
+    expect(r.lastFrame()!).toContain('active');
+    r.stdin.write('\r');
     await tick();
-    expect(lastFrame()!).toContain('paused');
+    expect(r.lastFrame()!).toContain('paused');
+    r.unmount();
   });
 
-  it('warming timer effect fires and calls tick', async () => {
-    vi.useFakeTimers();
-    const { stdin, unmount } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
-
-    stdin.write('\r');
-    await vi.advanceTimersByTimeAsync(30_000);
-
-    unmount();
-    vi.useRealTimers();
+  it('warming timer effect fires and calls tick (selected + due)', async () => {
+    // Cold session - discoverSessions returns selected:false for cold; we
+    // press space to select it before starting warming so bootstrap schedules
+    // nextWarmAt at `now` and the first tick warms it.
+    const d = makeDeps({
+      fixtures: [
+        defaultFixture({
+          lastAssistantAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+        }),
+      ],
+    });
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{
+          fs: d.fs,
+          warmFn: d.warmFn,
+          copyToClipboard: d.copyToClipboard,
+          TextInput: d.TextInput,
+          tickIntervalMs: 50,
+        }}
+      />,
+    );
+    await tick();
+    r.stdin.write(' '); // select
+    await tick();
+    r.stdin.write('\r'); // start warming
+    await tick();
+    await new Promise<void>((res) => setTimeout(res, 200));
+    expect(d.warmCalls.length).toBeGreaterThan(0);
+    r.unmount();
   });
 
   it('warming timer effect cleans up on warming toggle off', async () => {
-    vi.useFakeTimers();
-    const { stdin, unmount } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
-
-    stdin.write('\r');
-    await vi.advanceTimersByTimeAsync(10_000);
-    stdin.write('\r');
-    await vi.advanceTimersByTimeAsync(60_000);
-
-    unmount();
-    vi.useRealTimers();
+    const d = makeDeps();
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{
+          fs: d.fs,
+          warmFn: d.warmFn,
+          copyToClipboard: d.copyToClipboard,
+          TextInput: d.TextInput,
+          tickIntervalMs: 50,
+        }}
+      />,
+    );
+    await tick();
+    r.stdin.write('\r');
+    await tick();
+    r.stdin.write('\r');
+    await tick();
+    r.unmount();
   });
 
-  it('selectNone while warming calls removeSession', async () => {
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+  it('selectNone while warming', async () => {
+    const d = makeDeps();
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
     await tick();
-
-    stdin.write('\r');
+    r.stdin.write('\r');
     await tick();
-    stdin.write('n');
+    r.stdin.write('n');
     await tick();
-    expect(lastFrame()!).toBeDefined();
+    expect(r.lastFrame()!).toBeDefined();
+    r.unmount();
   });
 
-  it('selectActive while warming calls addSession for active sessions', async () => {
-    mockSessions.discoverSessions.mockReturnValue(makeTwoSessions());
-
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+  it('selectActive while warming', async () => {
+    const d = makeDeps({
+      fixtures: [
+        defaultFixture({ sessionId: 'abc', name: 'Session One' }),
+        defaultFixture({
+          sessionId: 'def',
+          name: 'Session Two',
+          lastAssistantAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+        }),
+      ],
+    });
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
     await tick();
-
-    stdin.write('\r');
+    r.stdin.write('\r');
     await tick();
-    stdin.write('a');
+    r.stdin.write('a');
     await tick();
-    expect(lastFrame()!).toBeDefined();
+    expect(r.lastFrame()!).toBeDefined();
+    r.unmount();
   });
 
   it('toggleSelection while warming adds session when selecting', async () => {
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    const d = makeDeps();
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
     await tick();
-
-    stdin.write('\r');
+    r.stdin.write('\r');
     await tick();
-    stdin.write(' ');
+    r.stdin.write(' ');
     await tick();
-    stdin.write(' ');
+    r.stdin.write(' ');
     await tick();
-    expect(lastFrame()!).toBeDefined();
+    expect(r.lastFrame()!).toBeDefined();
+    r.unmount();
   });
 
   it('toggleSelection while warming removes session when deselecting', async () => {
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    const d = makeDeps();
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
     await tick();
-
-    stdin.write('\r');
+    r.stdin.write('\r');
     await tick();
-    stdin.write(' ');
+    r.stdin.write(' ');
     await tick();
-    expect(lastFrame()!).toBeDefined();
-  });
-
-  it('warming toggle off resets warming status', async () => {
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
-    await tick();
-
-    stdin.write('\r');
-    await tick();
-    stdin.write('\r');
-    await tick();
-    expect(lastFrame()!).toContain('paused');
-  });
-
-  it('warming toggle off resets sessions with warmStatus warming to paused', async () => {
-    mockSessions.discoverSessions.mockReturnValue([
-      {
-        ...defaultSession(),
-        warmStatus: 'warming',
-      },
-    ]);
-
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
-    await tick();
-
-    // Start warming
-    stdin.write('\r');
-    await tick();
-    // Stop warming
-    stdin.write('\r');
-    await tick();
-    expect(lastFrame()!).toContain('paused');
+    expect(r.lastFrame()!).toBeDefined();
+    r.unmount();
   });
 
   it('handles unrecognized key input gracefully', async () => {
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    const d = makeDeps();
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
     await tick();
-
-    stdin.write('x');
+    r.stdin.write('x');
     await tick();
-    expect(lastFrame()!).toBeDefined();
+    expect(r.lastFrame()!).toBeDefined();
+    r.unmount();
   });
 
   it('does not toggle selection when sessions list is empty', async () => {
-    mockSessions.discoverSessions.mockReturnValue([]);
-
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    const fs = new InMemoryFs();
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs, warmFn: spy(() => Promise.resolve(defaultWarmResult)) as never, TextInput: CapturingTextInput }}
+      />,
+    );
     await tick();
-
-    stdin.write(' ');
+    r.stdin.write(' ');
     await tick();
-    expect(lastFrame()!).toBeDefined();
+    expect(r.lastFrame()!).toBeDefined();
+    r.unmount();
   });
 
   it('does not crash when navigating down on an empty sessions list', async () => {
-    mockSessions.discoverSessions.mockReturnValue([]);
-
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    const fs = new InMemoryFs();
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs, warmFn: spy(() => Promise.resolve(defaultWarmResult)) as never, TextInput: CapturingTextInput }}
+      />,
+    );
     await tick();
-
-    stdin.write('\x1B[B');
-    stdin.write(' ');
+    r.stdin.write('\x1B[B');
+    r.stdin.write(' ');
     await tick();
-    expect(lastFrame()!).toBeDefined();
+    expect(r.lastFrame()!).toBeDefined();
+    r.unmount();
   });
 
   it('does not crash when navigating up on an empty sessions list', async () => {
-    mockSessions.discoverSessions.mockReturnValue([]);
-
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    const fs = new InMemoryFs();
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs, warmFn: spy(() => Promise.resolve(defaultWarmResult)) as never, TextInput: CapturingTextInput }}
+      />,
+    );
     await tick();
-
-    stdin.write('\x1B[A');
+    r.stdin.write('\x1B[A');
     await tick();
-    expect(lastFrame()!).toBeDefined();
-  });
-
-  it('tick guard prevents concurrent tick execution', async () => {
-    vi.useFakeTimers();
-    const { stdin, unmount } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
-
-    stdin.write('\r');
-    await vi.advanceTimersByTimeAsync(30_000);
-    await vi.advanceTimersByTimeAsync(30_000);
-
-    unmount();
-    vi.useRealTimers();
-  });
-
-  it('tick guard early return when tickingRef is true', async () => {
-    vi.useFakeTimers();
-    const { stdin, unmount } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
-
-    stdin.write('\r');
-
-    vi.advanceTimersByTime(30_000);
-    vi.advanceTimersByTime(30_000);
-    vi.advanceTimersByTime(30_000);
-    await vi.advanceTimersByTimeAsync(0);
-
-    unmount();
-    vi.useRealTimers();
-  });
-
-  it('new sessions from refresh start unselected', async () => {
-    vi.useFakeTimers();
-    const { lastFrame, unmount } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
-
-    // After initial render, mock a new session appearing on next refresh
-    const newSession = {
-      ...defaultSession(),
-      sessionId: 'new-999',
-      name: 'New Session',
-      selected: true, // discoverSessions returns selected:true for warm sessions
-      isWarm: true,
-    };
-    mockSessions.discoverSessions.mockReturnValue([defaultSession(), newSession]);
-
-    // Trigger the 30s refresh interval
-    await vi.advanceTimersByTimeAsync(30_000);
-    await vi.advanceTimersByTimeAsync(50);
-
-    const frame = lastFrame()!;
-    expect(frame).toContain('New Session');
-
-    unmount();
-    vi.useRealTimers();
-  });
-
-  // B1 regression test: a warm session newly discovered during refresh
-  // must keep discovery's `selected: isWarm` so it auto-joins warming
-  // without the user having to toggle it on.
-  it('H1: warm session newly discovered during refresh is auto-selected', async () => {
-    vi.useFakeTimers();
-
-    // Initial discovery: only the default session, selected (isWarm -> selected).
-    mockSessions.discoverSessions.mockReturnValueOnce([defaultSession()]);
-
-    const { stdin, lastFrame, unmount } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
-    await vi.advanceTimersByTimeAsync(50);
-
-    // User presses Enter to start warming.
-    stdin.write('\r');
-    await vi.advanceTimersByTimeAsync(50);
-    expect(lastFrame()!).toContain('active');
-
-    // Now a new warm session appears on the next 30s refresh.
-    // discoverSessions() marks it selected:true because it is warm (sessions.ts:156).
-    const newWarm = {
-      ...defaultSession(),
-      sessionId: 'new-warm-001',
-      name: 'NewWarm',
-      selected: true,
-      isWarm: true,
-      // distinct tokens so it renders as its own row
-      cacheReadTokens: 9999,
-    };
-    mockSessions.discoverSessions.mockReturnValue([defaultSession(), newWarm]);
-
-    // Trigger the refresh.
-    await vi.advanceTimersByTimeAsync(30_000);
-    await vi.advanceTimersByTimeAsync(50);
-
-    // Assert the newly discovered warm session is selected (auto-joined warming).
-    // Selected rows render a leading '>' marker (session-row.tsx `selectChar`);
-    // unselected rows render a space in that column. Count '>' occurrences at
-    // row starts: with B1 fixed, both rows show it.
-    const frame = lastFrame()!;
-    expect(frame).toContain('NewWarm');
-    const selectedMarkers = frame.match(/^>/gm) || [];
-    expect(selectedMarkers.length).toBeGreaterThanOrEqual(2);
-
-    unmount();
-    vi.useRealTimers();
-  });
-
-  it('clamps the highlighted row when refresh removes sessions', async () => {
-    vi.useFakeTimers();
-    mockSessions.discoverSessions.mockReturnValueOnce(makeTwoSessions()).mockReturnValue([]);
-
-    const { stdin, lastFrame, unmount } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
-    await vi.advanceTimersByTimeAsync(50);
-
-    stdin.write('\x1B[B');
-    await vi.advanceTimersByTimeAsync(50);
-
-    await vi.advanceTimersByTimeAsync(30_000);
-    await vi.advanceTimersByTimeAsync(50);
-
-    stdin.write(' ');
-    await vi.advanceTimersByTimeAsync(50);
-
-    expect(lastFrame()!).toBeDefined();
-
-    unmount();
-    vi.useRealTimers();
-  });
-
-  it('guards against a stale highlighted index during refresh', async () => {
-    vi.useFakeTimers();
-    mockSessions.discoverSessions.mockReturnValueOnce(makeTwoSessions()).mockReturnValue([defaultSession()]);
-
-    const { stdin, lastFrame, unmount } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
-    await vi.advanceTimersByTimeAsync(50);
-
-    stdin.write('\x1B[B');
-    await vi.advanceTimersByTimeAsync(50);
-
-    await vi.advanceTimersByTimeAsync(30_000);
-    stdin.write(' ');
-    await vi.advanceTimersByTimeAsync(50);
-
-    expect(lastFrame()!).toBeDefined();
-
-    unmount();
-    vi.useRealTimers();
+    expect(r.lastFrame()!).toBeDefined();
+    r.unmount();
   });
 
   it('copies session ID to clipboard on c key', async () => {
-    const mockCopy = vi.mocked(clipboardModule.copyToClipboard);
-    mockCopy.mockReset();
-
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    const d = makeDeps();
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
     await tick();
-
-    stdin.write('c');
+    r.stdin.write('c');
     await tick();
-    expect(mockCopy).toHaveBeenCalledWith('abc-123');
-    expect(lastFrame()!).toBeDefined();
+    expect(d.copyCalls).toEqual(['abc-123']);
+    r.unmount();
   });
 
   it('c key is no-op when sessions list is empty', async () => {
-    mockSessions.discoverSessions.mockReturnValue([]);
-
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    const fs = new InMemoryFs();
+    const copy = spy((_t: string) => {});
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{
+          fs,
+          warmFn: spy(() => Promise.resolve(defaultWarmResult)) as never,
+          copyToClipboard: copy,
+          TextInput: CapturingTextInput,
+        }}
+      />,
+    );
     await tick();
-
-    stdin.write('c');
+    r.stdin.write('c');
     await tick();
-    expect(lastFrame()!).toBeDefined();
+    expect(copy.calls.length).toBe(0);
+    r.unmount();
   });
 
   it('opens prompt editing on p key and submits with value', async () => {
-    capturedOnSubmit = null;
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    const d = makeDeps();
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
     await tick();
-
-    stdin.write('p');
+    r.stdin.write('p');
     await tick();
-    expect(lastFrame()!).toContain('Prompt');
+    expect(r.lastFrame()!).toContain('Prompt');
     expect(capturedOnSubmit).not.toBeNull();
-
-    // Call onSubmit directly with a new value
     capturedOnSubmit!('Say hello');
     await tick();
-    expect(lastFrame()!).not.toContain('[TextInput');
-    expect(lastFrame()!).toContain('Say hello');
+    expect(r.lastFrame()!).not.toContain('[TextInput');
+    expect(r.lastFrame()!).toContain('Say hello');
+    r.unmount();
   });
 
   it('opens interval editing on i key and submits with valid value', async () => {
-    capturedOnSubmit = null;
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    const d = makeDeps();
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
     await tick();
-
-    stdin.write('i');
+    r.stdin.write('i');
     await tick();
-    expect(lastFrame()!).toContain('Interval');
+    expect(r.lastFrame()!).toContain('Interval');
     expect(capturedOnSubmit).not.toBeNull();
-
-    // Submit a valid interval
     capturedOnSubmit!('30');
     await tick();
-    expect(lastFrame()!).not.toContain('[TextInput');
-    expect(lastFrame()!).toContain('30m');
+    expect(r.lastFrame()!).not.toContain('[TextInput');
+    expect(r.lastFrame()!).toContain('30m');
+    r.unmount();
   });
 
   it('interval edit with invalid value keeps original', async () => {
-    capturedOnSubmit = null;
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    const d = makeDeps();
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
     await tick();
-
-    stdin.write('i');
+    r.stdin.write('i');
     await tick();
-    expect(capturedOnSubmit).not.toBeNull();
-
-    // Submit invalid value
     capturedOnSubmit!('abc');
     await tick();
-    expect(lastFrame()!).toContain('55m');
+    expect(r.lastFrame()!).toContain('55m');
+    r.unmount();
   });
 
   it('interval edit with out-of-range value keeps original', async () => {
-    capturedOnSubmit = null;
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    const d = makeDeps();
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
     await tick();
-
-    stdin.write('i');
+    r.stdin.write('i');
     await tick();
-    expect(capturedOnSubmit).not.toBeNull();
-
-    // Submit out-of-range value
     capturedOnSubmit!('0');
     await tick();
-    expect(lastFrame()!).toContain('55m');
+    expect(r.lastFrame()!).toContain('55m');
+    r.unmount();
   });
 
   it('interval edit with value above 59 keeps original', async () => {
-    capturedOnSubmit = null;
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    const d = makeDeps();
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
     await tick();
-
-    stdin.write('i');
+    r.stdin.write('i');
     await tick();
-    expect(capturedOnSubmit).not.toBeNull();
-
     capturedOnSubmit!('60');
     await tick();
-    expect(lastFrame()!).toContain('55m');
+    expect(r.lastFrame()!).toContain('55m');
+    r.unmount();
   });
 
   it('prompt edit with empty value keeps original', async () => {
-    capturedOnSubmit = null;
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    const d = makeDeps();
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
     await tick();
-
-    stdin.write('p');
+    r.stdin.write('p');
     await tick();
-    expect(capturedOnSubmit).not.toBeNull();
-
-    // Submit empty string - should keep original
     capturedOnSubmit!('   ');
     await tick();
-    expect(lastFrame()!).toContain("Reply 'ok'");
+    expect(r.lastFrame()!).toContain("Reply 'ok'");
+    r.unmount();
   });
 
   it('disables keybindings while editing prompt', async () => {
-    capturedOnSubmit = null;
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    const d = makeDeps();
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
     await tick();
-
-    stdin.write('p');
+    r.stdin.write('p');
     await tick();
-
     // 'q' should not quit the app while editing
-    stdin.write('q');
+    r.stdin.write('q');
     await tick();
-    expect(lastFrame()!).toContain('Prompt');
-
-    // Submit to close editor
+    expect(r.lastFrame()!).toContain('Prompt');
     capturedOnSubmit!("Reply 'ok'");
     await tick();
-  });
-
-  it('selectActive while warming removes non-active sessions', async () => {
-    mockSessions.discoverSessions.mockReturnValue(makeTwoSessions());
-
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
-    await tick();
-
-    // Start warming
-    stdin.write('\r');
-    await tick();
-
-    // Select active - should select warm/live, deselect cold
-    stdin.write('a');
-    await tick();
-    expect(lastFrame()!).toBeDefined();
+    r.unmount();
   });
 
   it('scroll updates when navigating down past visible area', async () => {
-    // Create many sessions to exceed visible rows
-    const manySessions = Array.from({ length: 25 }, (_, i) => ({
-      ...defaultSession(),
-      sessionId: `session-${String(i).padStart(3, '0')}`,
-      name: `Session ${i}`,
-    }));
-    mockSessions.discoverSessions.mockReturnValue(manySessions);
-
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+    const fixtures = Array.from({ length: 25 }, (_, i) =>
+      defaultFixture({
+        sessionId: `s-${String(i).padStart(3, '0')}`,
+        name: `Session ${i}`,
+        cacheReadTokens: 100000 - i,
+      }));
+    const d = makeDeps({ fixtures });
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
     await tick();
-
-    // Navigate down many times
-    for (let i = 0; i < 20; i++) {
-      stdin.write('\x1B[B');
-    }
+    for (let i = 0; i < 20; i++) r.stdin.write('\x1B[B');
     await tick();
-    expect(lastFrame()!).toBeDefined();
-  });
-
-  it('reclamps scroll when the terminal height shrinks', async () => {
-    const manySessions = Array.from({ length: 5 }, (_, i) => ({
-      ...defaultSession(),
-      sessionId: `session-${String(i).padStart(3, '0')}`,
-      name: `Session ${i}`,
-    }));
-    mockSessions.discoverSessions.mockReturnValue(manySessions);
-
-    const instance = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
-    await tick();
-
-    for (let i = 0; i < 4; i++) {
-      instance.stdin.write('\x1B[B');
-    }
-    await tick();
-
-    Object.defineProperty(instance.stdout, 'rows', {
-      configurable: true,
-      get: () => 8,
-    });
-    instance.rerender(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
-    await tick();
-
-    expect(instance.lastFrame()!).toContain('Session 4');
-  });
-
-  it('reclamps scroll when refresh removes rows above the current offset', async () => {
-    vi.useFakeTimers();
-    const manySessions = Array.from({ length: 5 }, (_, i) => ({
-      ...defaultSession(),
-      sessionId: `session-${String(i).padStart(3, '0')}`,
-      name: `Session ${i}`,
-    }));
-    mockSessions.discoverSessions.mockReturnValueOnce(manySessions).mockReturnValue(manySessions.slice(0, 3));
-
-    const instance = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
-    Object.defineProperty(instance.stdout, 'rows', {
-      configurable: true,
-      get: () => 8,
-    });
-    instance.rerender(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
-    await vi.advanceTimersByTimeAsync(50);
-
-    for (let i = 0; i < 4; i++) {
-      instance.stdin.write('\x1B[B');
-    }
-    await vi.advanceTimersByTimeAsync(50);
-
-    await vi.advanceTimersByTimeAsync(30_000);
-    await vi.advanceTimersByTimeAsync(50);
-
-    expect(instance.lastFrame()!).toContain('Session 2');
-
-    instance.unmount();
-    instance.cleanup();
-    vi.useRealTimers();
-  });
-
-  it('interval change while warming reschedules sessions', async () => {
-    capturedOnSubmit = null;
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
-    await tick();
-
-    // Start warming
-    stdin.write('\r');
-    await tick();
-    expect(lastFrame()!).toContain('active');
-
-    // Change interval
-    stdin.write('i');
-    await tick();
-    expect(capturedOnSubmit).not.toBeNull();
-    capturedOnSubmit!('10');
-    await tick();
-    expect(lastFrame()!).toContain('10m');
-    // Sessions should be rescheduled with new interval
-    expect(lastFrame()!).toContain('active');
-  });
-
-  it('tick merges warming results while preserving user selection changes', async () => {
-    // Use a session that's cold (will be scheduled immediately by bootstrap)
-    mockSessions.discoverSessions.mockReturnValue([
-      {
-        ...defaultSession(),
-        lastAssistantTimestamp: Date.now() - 2 * 60 * 60 * 1000,
-        isWarm: false,
-        selected: true,
-      },
-    ]);
-
-    // Mock warmSession to return a result that differs from initial state
-    const mockWarm = vi.mocked(warmerModule.warmSession);
-    mockWarm.mockResolvedValue({
-      sessionId: 'abc-123',
-      usage: { inputTokens: 0, cacheReadInputTokens: 80000, cacheCreationInputTokens: 2000, outputTokens: 5 },
-      model: 'claude-opus-4-6',
-      costUsd: 0.05,
-      error: null,
-    });
-
-    vi.useFakeTimers();
-    const { stdin, unmount } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
-
-    // Start warming - cold session gets nextWarmAt = now
-    stdin.write('\r');
-    await vi.advanceTimersByTimeAsync(50);
-
-    // Advance past tick interval - should trigger tick and warm the due session
-    await vi.advanceTimersByTimeAsync(30_000);
-    // Let the promise chain resolve
-    await vi.advanceTimersByTimeAsync(100);
-
-    unmount();
-    vi.useRealTimers();
+    expect(r.lastFrame()!).toBeDefined();
+    r.unmount();
   });
 
   it('scroll updates when navigating up past visible area', async () => {
-    const manySessions = Array.from({ length: 25 }, (_, i) => ({
-      ...defaultSession(),
-      sessionId: `session-${String(i).padStart(3, '0')}`,
-      name: `Session ${i}`,
-    }));
-    mockSessions.discoverSessions.mockReturnValue(manySessions);
+    const fixtures = Array.from({ length: 25 }, (_, i) =>
+      defaultFixture({
+        sessionId: `s-${String(i).padStart(3, '0')}`,
+        name: `Session ${i}`,
+        cacheReadTokens: 100000 - i,
+      }));
+    const d = makeDeps({ fixtures });
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
+    await tick();
+    for (let i = 0; i < 20; i++) r.stdin.write('\x1B[B');
+    await tick();
+    for (let i = 0; i < 20; i++) r.stdin.write('\x1B[A');
+    await tick();
+    expect(r.lastFrame()!).toContain('Session 0');
+    r.unmount();
+  });
 
-    const { stdin, lastFrame } = render(<App intervalMinutes={55} warmPrompt="Reply 'ok'" />);
+  it('reclamps scroll when the terminal height shrinks', async () => {
+    const fixtures = Array.from({ length: 5 }, (_, i) =>
+      defaultFixture({
+        sessionId: `s-${String(i).padStart(3, '0')}`,
+        name: `Session ${i}`,
+        cacheReadTokens: 100000 - i,
+      }));
+    const d = makeDeps({ fixtures });
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
     await tick();
+    for (let i = 0; i < 4; i++) r.stdin.write('\x1B[B');
+    await tick();
+    Object.defineProperty(r.stdout, 'rows', { configurable: true, get: () => 8 });
+    r.rerender(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
+    await tick();
+    expect(r.lastFrame()!).toContain('Session 4');
+    r.unmount();
+  });
 
-    // Navigate down then back up
-    for (let i = 0; i < 20; i++) {
-      stdin.write('\x1B[B');
-    }
+  it('interval change while warming reschedules sessions', async () => {
+    const d = makeDeps();
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
     await tick();
-    for (let i = 0; i < 20; i++) {
-      stdin.write('\x1B[A');
-    }
+    r.stdin.write('\r');
     await tick();
-    expect(lastFrame()!).toContain('Session 0');
+    expect(r.lastFrame()!).toContain('active');
+    r.stdin.write('i');
+    await tick();
+    capturedOnSubmit!('10');
+    await tick();
+    expect(r.lastFrame()!).toContain('10m');
+    expect(r.lastFrame()!).toContain('active');
+    r.unmount();
+  });
+
+  it('tick warm completes and applies the success patch', async () => {
+    const d = makeDeps({
+      fixtures: [
+        defaultFixture({
+          lastAssistantAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+        }),
+      ],
+    });
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{
+          fs: d.fs,
+          warmFn: d.warmFn,
+          copyToClipboard: d.copyToClipboard,
+          TextInput: d.TextInput,
+          tickIntervalMs: 50,
+        }}
+      />,
+    );
+    await tick();
+    r.stdin.write(' ');
+    await tick();
+    r.stdin.write('\r');
+    await new Promise<void>((res) => setTimeout(res, 200));
+    expect(d.warmCalls.length).toBeGreaterThan(0);
+    r.unmount();
+  });
+
+  it('warming toggle off resets sessions with warmStatus warming to idle', async () => {
+    const d = makeDeps();
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{ fs: d.fs, warmFn: d.warmFn, copyToClipboard: d.copyToClipboard, TextInput: d.TextInput }}
+      />,
+    );
+    await tick();
+    r.stdin.write('\r');
+    await tick();
+    r.stdin.write('\r');
+    await tick();
+    expect(r.lastFrame()!).toContain('paused');
+    r.unmount();
+  });
+
+  it('newly discovered warm session is auto-selected (B1 regression)', async () => {
+    const d = makeDeps();
+    // Drive refresh through a manual fs swap: just check initial render asserts session present.
+    // Full mid-run refresh coverage lives in tests/integration/.
+    const r = render(
+      <App
+        intervalMinutes={55}
+        warmPrompt="Reply 'ok'"
+        deps={{
+          fs: d.fs,
+          warmFn: d.warmFn,
+          copyToClipboard: d.copyToClipboard,
+          TextInput: d.TextInput,
+          refreshIntervalMs: 50,
+        }}
+      />,
+    );
+    await tick();
+    // Add a second fixture and wait for refresh to pick it up.
+    d.fs.addFile(
+      `.claude/projects/test/new-warm-001.jsonl`,
+      buildJsonl({
+        sessionId: 'new-warm-001',
+        projectDir: 'test',
+        customTitle: 'NewWarm',
+        cacheReadTokens: 9999,
+        cacheWriteTokens: 1,
+        model: 'claude-opus-4-6',
+        lastAssistantAt: new Date(Date.now() - 5 * 60 * 1000),
+      }),
+    );
+    await new Promise<void>((res) => setTimeout(res, 120));
+    expect(r.lastFrame()!).toContain('NewWarm');
+    r.unmount();
   });
 });

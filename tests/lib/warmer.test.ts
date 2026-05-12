@@ -1,25 +1,22 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import {
-  warmSession,
-  extractUsageFromNewLines,
-  getJsonlPath,
-  getClaudePath,
-  resetClaudePath,
-  makeWarmer,
-} from '../../src/lib/warmer.js';
-import * as fs from 'node:fs';
+import { afterEach, beforeEach, describe, it } from '@std/testing/bdd';
+import { expect } from '@std/expect';
+import { spy } from '@std/testing/mock';
+import { FakeTime } from '@std/testing/time';
+import { Buffer } from 'node:buffer';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import * as pty from 'node-pty';
-import * as child_process from 'node:child_process';
-
-vi.mock('node-pty');
-vi.mock('node:fs');
-vi.mock('node:child_process');
-
-const mockPty = vi.mocked(pty);
-const mockFs = vi.mocked(fs);
-const mockCp = vi.mocked(child_process);
+import process from 'node:process';
+import type * as fs from 'node:fs';
+import {
+  extractUsageFromNewLines,
+  getClaudePath,
+  getJsonlPath,
+  makeWarmer,
+  resetClaudePath,
+  warmSession,
+} from '../../src/lib/warmer.ts';
+import type { ExecFileSyncFn } from '../../src/lib/warmer.ts';
+import type { Fs, PtyLike, SpawnFn } from '../../src/lib/deps.ts';
 
 function makeJsonlLine(overrides: { model?: string; usage?: Record<string, number> }): string {
   return JSON.stringify({
@@ -33,6 +30,76 @@ function makeJsonlLine(overrides: { model?: string; usage?: Record<string, numbe
   });
 }
 
+interface MockPty extends PtyLike {
+  emitData: (data: string) => void;
+  emitExit: (event: { exitCode: number }) => void;
+  writeCalls: string[];
+  killCalls: number;
+  killThrows: boolean;
+}
+
+function makeMockPty(): MockPty {
+  let dataCb: ((data: string) => void) | null = null;
+  let exitCb: ((event: { exitCode: number }) => void) | null = null;
+  const mp: MockPty = {
+    onData: (cb) => {
+      dataCb = cb;
+      return { dispose: () => {} };
+    },
+    onExit: (cb) => {
+      exitCb = cb;
+      return { dispose: () => {} };
+    },
+    write: (data: string) => {
+      mp.writeCalls.push(data);
+      return true;
+    },
+    kill: () => {
+      mp.killCalls++;
+      if (mp.killThrows) throw new Error('Process already exited');
+    },
+    emitData: (data) => dataCb?.(data),
+    emitExit: (event) => exitCb?.(event),
+    writeCalls: [],
+    killCalls: 0,
+    killThrows: false,
+  };
+  return mp;
+}
+
+interface MockFsState {
+  statSize?: number | 'throw';
+  fstatSize?: number;
+  readContent?: string;
+  openThrows?: boolean;
+}
+
+function makeMockFs(state: MockFsState): Fs {
+  const closeSync = spy(() => undefined);
+  return {
+    existsSync: (() => true) as Fs['existsSync'],
+    readdirSync: (() => []) as Fs['readdirSync'],
+    readFileSync: (() => '') as Fs['readFileSync'],
+    statSync: ((..._args: unknown[]) => {
+      if (state.statSize === 'throw') throw new Error('ENOENT');
+      return { size: state.statSize ?? 0 } as fs.Stats;
+    }) as Fs['statSync'],
+    openSync: ((..._args: unknown[]) => {
+      if (state.openThrows) throw new Error('ENOENT');
+      return 42;
+    }) as Fs['openSync'],
+    fstatSync: (() => ({ size: state.fstatSize ?? 0 } as fs.Stats)) as Fs['fstatSync'],
+    readSync: ((_fd: number, buf: Buffer) => {
+      if (state.readContent) {
+        buf.write(state.readContent);
+        return state.readContent.length;
+      }
+      return 0;
+    }) as unknown as Fs['readSync'],
+    closeSync: closeSync as unknown as Fs['closeSync'],
+  };
+}
+
 describe('getJsonlPath', () => {
   it('constructs the correct path', () => {
     const result = getJsonlPath('my-project', 'abc-123');
@@ -44,7 +111,6 @@ describe('getClaudePath', () => {
   let originalClaudePath: string | undefined;
 
   beforeEach(() => {
-    vi.resetAllMocks();
     resetClaudePath();
     originalClaudePath = process.env.CLAUDE_PATH;
     delete process.env.CLAUDE_PATH;
@@ -56,38 +122,40 @@ describe('getClaudePath', () => {
     } else {
       process.env.CLAUDE_PATH = originalClaudePath;
     }
+    resetClaudePath();
   });
 
   it('returns cached path on subsequent calls', () => {
-    mockCp.execFileSync.mockReturnValue('/usr/local/bin/claude\n' as never);
-    const first = getClaudePath();
-    const second = getClaudePath();
+    const exec = spy(() => '/usr/local/bin/claude\n');
+    const first = getClaudePath(exec as unknown as ExecFileSyncFn);
+    const second = getClaudePath(exec as unknown as ExecFileSyncFn);
     expect(first).toBe('/usr/local/bin/claude');
     expect(second).toBe('/usr/local/bin/claude');
-    expect(mockCp.execFileSync).toHaveBeenCalledTimes(1);
+    expect(exec.calls.length).toBe(1);
   });
 
   it('falls back to claude when which fails', () => {
-    mockCp.execFileSync.mockImplementation(() => {
+    const exec = spy(() => {
       throw new Error('not found');
     });
-    const result = getClaudePath();
+    const result = getClaudePath(exec as unknown as ExecFileSyncFn);
     expect(result).toBe('claude');
   });
 
   it('uses CLAUDE_PATH env var when set, skipping which', () => {
     process.env.CLAUDE_PATH = '/tmp/fake-claude';
-    const result = getClaudePath();
+    const exec = spy(() => '/should-not-be-called');
+    const result = getClaudePath(exec as unknown as ExecFileSyncFn);
     expect(result).toBe('/tmp/fake-claude');
-    expect(mockCp.execFileSync).not.toHaveBeenCalled();
+    expect(exec.calls.length).toBe(0);
   });
 
   it('ignores empty CLAUDE_PATH and falls through to which', () => {
     process.env.CLAUDE_PATH = '';
-    mockCp.execFileSync.mockReturnValue('/usr/local/bin/claude\n' as never);
-    const result = getClaudePath();
+    const exec = spy(() => '/usr/local/bin/claude\n');
+    const result = getClaudePath(exec as unknown as ExecFileSyncFn);
     expect(result).toBe('/usr/local/bin/claude');
-    expect(mockCp.execFileSync).toHaveBeenCalled();
+    expect(exec.calls.length).toBe(1);
   });
 });
 
@@ -102,7 +170,6 @@ describe('extractUsageFromNewLines', () => {
         output_tokens: 5,
       },
     });
-
     const result = extractUsageFromNewLines(line);
     expect(result.usage.cacheReadInputTokens).toBe(100000);
     expect(result.usage.cacheCreationInputTokens).toBe(500);
@@ -144,9 +211,7 @@ describe('extractUsageFromNewLines', () => {
       model: 'claude-opus-4-6',
       usage: { cache_read_input_tokens: 80000, output_tokens: 3 },
     });
-    const content = line1 + '\n' + line2;
-
-    const result = extractUsageFromNewLines(content);
+    const result = extractUsageFromNewLines(line1 + '\n' + line2);
     expect(result.model).toBe('claude-opus-4-6');
     expect(result.usage.cacheReadInputTokens).toBe(80000);
   });
@@ -168,228 +233,168 @@ describe('extractUsageFromNewLines', () => {
       model: 'claude-opus-4-6',
       usage: { cache_read_input_tokens: 50000, output_tokens: 2 },
     });
-    const content = userLine + '\n' + assistantLine;
-
-    const result = extractUsageFromNewLines(content);
+    const result = extractUsageFromNewLines(userLine + '\n' + assistantLine);
     expect(result.usage.cacheReadInputTokens).toBe(50000);
     expect(result.error).toBeNull();
   });
 });
 
 describe('warmSession', () => {
-  let mockPtyProcess: {
-    onData: ReturnType<typeof vi.fn>;
-    onExit: ReturnType<typeof vi.fn>;
-    write: ReturnType<typeof vi.fn>;
-    kill: ReturnType<typeof vi.fn>;
-  };
-  let dataCallback: (data: string) => void;
-  let exitCallback: (event: { exitCode: number }) => void;
+  let time: FakeTime;
+  let mockPty: MockPty;
+  let spawn: SpawnFn;
+  let exec: ExecFileSyncFn;
 
   beforeEach(() => {
-    vi.resetAllMocks();
-    vi.useFakeTimers();
     resetClaudePath();
-
-    mockCp.execFileSync.mockReturnValue('claude\n' as never);
-
-    mockPtyProcess = {
-      onData: vi.fn((cb) => {
-        dataCallback = cb;
-      }),
-      onExit: vi.fn((cb) => {
-        exitCallback = cb;
-      }),
-      write: vi.fn(),
-      kill: vi.fn(),
-    };
-
-    mockPty.spawn.mockReturnValue(mockPtyProcess as unknown as pty.IPty);
+    time = new FakeTime();
+    mockPty = makeMockPty();
+    spawn = (() => mockPty) as unknown as SpawnFn;
+    exec = (() => 'claude\n') as ExecFileSyncFn;
   });
 
   afterEach(() => {
-    vi.useRealTimers();
+    time.restore();
+    resetClaudePath();
   });
 
   it('returns error when no projectDir is provided', async () => {
-    const result = await warmSession('abc-123', "Reply 'ok'", '/test');
+    const result = await warmSession('abc-123', "Reply 'ok'", '/test', undefined, {
+      fs: makeMockFs({ statSize: 0 }),
+      spawn,
+      execFile: exec,
+    });
     expect(result.error).toBe('No projectDir provided');
   });
 
   it('spawns claude with --resume in a PTY', async () => {
-    mockFs.statSync.mockReturnValue({ size: 0 } as fs.Stats);
-
     const assistantLine = makeJsonlLine({
       model: 'claude-opus-4-6',
       usage: { cache_read_input_tokens: 80000, cache_creation_input_tokens: 1000, output_tokens: 3 },
     });
+    const spawnSpy = spy((_file: string, _args: string[], _opts: unknown) => mockPty);
+    const fsFake = makeMockFs({ statSize: 0, fstatSize: assistantLine.length, readContent: assistantLine });
 
-    const promise = warmSession('abc-123', "Reply 'ok'", '/test', 'my-project');
-
-    // Simulate REPL startup output
-    dataCallback('Claude Code v2.1\n> ');
-
-    // Wait for settle timer to fire (sends prompt)
-    await vi.advanceTimersByTimeAsync(3500);
-    expect(mockPtyProcess.write).toHaveBeenCalledWith("Reply 'ok'\r");
-
-    // Simulate response output
-    dataCallback('ok\n> ');
-
-    // Wait for settle timer to fire (sends /exit)
-    await vi.advanceTimersByTimeAsync(3500);
-    expect(mockPtyProcess.write).toHaveBeenCalledWith('/exit\r');
-
-    // Mock JSONL file read for new content
-    const fd = 42;
-    mockFs.openSync.mockReturnValue(fd);
-    mockFs.fstatSync.mockReturnValue({ size: assistantLine.length } as fs.Stats);
-    mockFs.readSync.mockImplementation((_fd, buf) => {
-      (buf as Buffer).write(assistantLine);
-      return assistantLine.length;
+    const promise = warmSession('abc-123', "Reply 'ok'", '/test', 'my-project', {
+      fs: fsFake,
+      spawn: spawnSpy as unknown as SpawnFn,
+      execFile: exec,
     });
-    mockFs.closeSync.mockReturnValue(undefined);
 
-    // Process exits
-    exitCallback({ exitCode: 0 });
+    mockPty.emitData('Claude Code v2.1\n> ');
+    await time.tickAsync(3500);
+    expect(mockPty.writeCalls).toContain("Reply 'ok'\r");
 
+    mockPty.emitData('ok\n> ');
+    await time.tickAsync(3500);
+    expect(mockPty.writeCalls).toContain('/exit\r');
+
+    mockPty.emitExit({ exitCode: 0 });
+    await time.runMicrotasks();
     const result = await promise;
     expect(result.sessionId).toBe('abc-123');
     expect(result.usage.cacheReadInputTokens).toBe(80000);
     expect(result.model).toBe('claude-opus-4-6');
     expect(result.error).toBeNull();
 
-    expect(mockPty.spawn).toHaveBeenCalledWith(
-      expect.any(String),
-      ['--resume', 'abc-123'],
-      expect.objectContaining({ cwd: '/test' }),
-    );
+    expect(spawnSpy.calls[0].args[1]).toEqual(['--resume', 'abc-123']);
+    expect((spawnSpy.calls[0].args[2] as { cwd?: string }).cwd).toBe('/test');
   });
 
   it('handles total timeout', async () => {
-    mockFs.statSync.mockReturnValue({ size: 0 } as fs.Stats);
+    const fsFake = makeMockFs({ statSize: 0 });
+    const promise = warmSession('abc-123', "Reply 'ok'", '/test', 'my-project', {
+      fs: fsFake,
+      spawn,
+      execFile: exec,
+    });
 
-    const promise = warmSession('abc-123', "Reply 'ok'", '/test', 'my-project');
-
-    // Simulate data flowing continuously so settle timer keeps resetting
-    // but never settles long enough to transition phases
     for (let i = 0; i < 50; i++) {
-      await vi.advanceTimersByTimeAsync(2500); // just under SETTLE_MS (3000)
-      dataCallback('.');
+      await time.tickAsync(2500);
+      mockPty.emitData('.');
     }
-
-    // Now advance past total timeout
-    await vi.advanceTimersByTimeAsync(5_000);
-
+    await time.tickAsync(5_000);
     const result = await promise;
     expect(result.error).toBe('Warm session timed out');
-    expect(mockPtyProcess.kill).toHaveBeenCalled();
+    expect(mockPty.killCalls).toBeGreaterThan(0);
   });
 
   it('handles PTY spawn failure', async () => {
-    mockFs.statSync.mockReturnValue({ size: 0 } as fs.Stats);
-    mockPty.spawn.mockImplementation(() => {
+    const failSpawn = (() => {
       throw new Error('spawn failed');
+    }) as unknown as SpawnFn;
+    const result = await warmSession('abc-123', "Reply 'ok'", '/test', 'my-project', {
+      fs: makeMockFs({ statSize: 0 }),
+      spawn: failSpawn,
+      execFile: exec,
     });
-
-    const result = await warmSession('abc-123', "Reply 'ok'", '/test', 'my-project');
     expect(result.error).toContain('Failed to spawn PTY');
   });
 
   it('kills PTY after grace period if it does not exit after /exit', async () => {
-    mockFs.statSync.mockReturnValue({ size: 0 } as fs.Stats);
-
     const assistantLine = makeJsonlLine({
       model: 'claude-opus-4-6',
       usage: { cache_read_input_tokens: 80000, output_tokens: 3 },
     });
-
-    const promise = warmSession('abc-123', "Reply 'ok'", '/test', 'my-project');
-
-    dataCallback('> ');
-    await vi.advanceTimersByTimeAsync(3500); // sends prompt
-    dataCallback('ok\n> ');
-    await vi.advanceTimersByTimeAsync(3500); // sends /exit
-
-    // PTY does NOT exit - advance past EXIT_GRACE_MS (5000)
-    const fd = 42;
-    mockFs.openSync.mockReturnValue(fd);
-    mockFs.fstatSync.mockReturnValue({ size: assistantLine.length } as fs.Stats);
-    mockFs.readSync.mockImplementation((_fd, buf) => {
-      (buf as Buffer).write(assistantLine);
-      return assistantLine.length;
+    const fsFake = makeMockFs({ statSize: 0, fstatSize: assistantLine.length, readContent: assistantLine });
+    const promise = warmSession('abc-123', "Reply 'ok'", '/test', 'my-project', {
+      fs: fsFake,
+      spawn,
+      execFile: exec,
     });
-    mockFs.closeSync.mockReturnValue(undefined);
 
-    await vi.advanceTimersByTimeAsync(5500);
+    mockPty.emitData('> ');
+    await time.tickAsync(3500);
+    mockPty.emitData('ok\n> ');
+    await time.tickAsync(3500);
+    await time.tickAsync(5500);
 
     const result = await promise;
-    expect(mockPtyProcess.kill).toHaveBeenCalled();
+    expect(mockPty.killCalls).toBeGreaterThan(0);
     expect(result.error).toBeNull();
   });
 
   it('handles kill failure in grace period when PTY already exited', async () => {
-    mockFs.statSync.mockReturnValue({ size: 0 } as fs.Stats);
-
     const assistantLine = makeJsonlLine({
       model: 'claude-opus-4-6',
       usage: { cache_read_input_tokens: 80000, output_tokens: 3 },
     });
-
-    const promise = warmSession('abc-123', "Reply 'ok'", '/test', 'my-project');
-
-    dataCallback('> ');
-    await vi.advanceTimersByTimeAsync(3500);
-    dataCallback('ok\n> ');
-    await vi.advanceTimersByTimeAsync(3500);
-
-    // kill throws because process already exited
-    mockPtyProcess.kill.mockImplementation(() => {
-      throw new Error('Process already exited');
+    mockPty.killThrows = true;
+    const fsFake = makeMockFs({ statSize: 0, fstatSize: assistantLine.length, readContent: assistantLine });
+    const promise = warmSession('abc-123', "Reply 'ok'", '/test', 'my-project', {
+      fs: fsFake,
+      spawn,
+      execFile: exec,
     });
 
-    const fd = 42;
-    mockFs.openSync.mockReturnValue(fd);
-    mockFs.fstatSync.mockReturnValue({ size: assistantLine.length } as fs.Stats);
-    mockFs.readSync.mockImplementation((_fd, buf) => {
-      (buf as Buffer).write(assistantLine);
-      return assistantLine.length;
-    });
-    mockFs.closeSync.mockReturnValue(undefined);
-
-    await vi.advanceTimersByTimeAsync(5500);
+    mockPty.emitData('> ');
+    await time.tickAsync(3500);
+    mockPty.emitData('ok\n> ');
+    await time.tickAsync(3500);
+    await time.tickAsync(5500);
 
     const result = await promise;
     expect(result.error).toBeNull();
   });
 
   it('handles missing JSONL file before warm (statSync fails)', async () => {
-    mockFs.statSync.mockImplementation(() => {
-      throw new Error('ENOENT');
-    });
-
     const assistantLine = makeJsonlLine({
       model: 'claude-opus-4-6',
       usage: { cache_read_input_tokens: 80000, output_tokens: 3 },
     });
-
-    const promise = warmSession('abc-123', "Reply 'ok'", '/test', 'my-project');
-
-    dataCallback('> ');
-    await vi.advanceTimersByTimeAsync(3500);
-    dataCallback('ok\n> ');
-    await vi.advanceTimersByTimeAsync(3500);
-
-    const fd = 42;
-    mockFs.openSync.mockReturnValue(fd);
-    mockFs.fstatSync.mockReturnValue({ size: assistantLine.length } as fs.Stats);
-    mockFs.readSync.mockImplementation((_fd, buf) => {
-      (buf as Buffer).write(assistantLine);
-      return assistantLine.length;
+    const fsFake = makeMockFs({ statSize: 'throw', fstatSize: assistantLine.length, readContent: assistantLine });
+    const promise = warmSession('abc-123', "Reply 'ok'", '/test', 'my-project', {
+      fs: fsFake,
+      spawn,
+      execFile: exec,
     });
-    mockFs.closeSync.mockReturnValue(undefined);
 
-    exitCallback({ exitCode: 0 });
+    mockPty.emitData('> ');
+    await time.tickAsync(3500);
+    mockPty.emitData('ok\n> ');
+    await time.tickAsync(3500);
+    mockPty.emitExit({ exitCode: 0 });
+    await time.runMicrotasks();
 
     const result = await promise;
     expect(result.error).toBeNull();
@@ -397,83 +402,64 @@ describe('warmSession', () => {
   });
 
   it('returns error when JSONL file read fails after warm', async () => {
-    mockFs.statSync.mockReturnValue({ size: 0 } as fs.Stats);
-
-    const promise = warmSession('abc-123', "Reply 'ok'", '/test', 'my-project');
-
-    dataCallback('> ');
-    await vi.advanceTimersByTimeAsync(3500);
-    dataCallback('ok\n> ');
-    await vi.advanceTimersByTimeAsync(3500);
-
-    // JSONL read throws
-    mockFs.openSync.mockImplementation(() => {
-      throw new Error('ENOENT');
+    const fsFake = makeMockFs({ statSize: 0, openThrows: true });
+    const promise = warmSession('abc-123', "Reply 'ok'", '/test', 'my-project', {
+      fs: fsFake,
+      spawn,
+      execFile: exec,
     });
 
-    exitCallback({ exitCode: 0 });
+    mockPty.emitData('> ');
+    await time.tickAsync(3500);
+    mockPty.emitData('ok\n> ');
+    await time.tickAsync(3500);
+    mockPty.emitExit({ exitCode: 0 });
+    await time.runMicrotasks();
 
     const result = await promise;
     expect(result.error).toBe('Failed to read JSONL file after warm');
   });
 
   it('passes undefined cwd when not provided', async () => {
-    mockFs.statSync.mockReturnValue({ size: 0 } as fs.Stats);
-
     const assistantLine = makeJsonlLine({
       model: 'claude-opus-4-6',
       usage: { cache_read_input_tokens: 80000, output_tokens: 3 },
     });
-
-    const promise = warmSession('abc-123', "Reply 'ok'", undefined, 'my-project');
-
-    dataCallback('> ');
-    await vi.advanceTimersByTimeAsync(3500);
-    dataCallback('ok\n> ');
-    await vi.advanceTimersByTimeAsync(3500);
-
-    const fd = 42;
-    mockFs.openSync.mockReturnValue(fd);
-    mockFs.fstatSync.mockReturnValue({ size: assistantLine.length } as fs.Stats);
-    mockFs.readSync.mockImplementation((_fd, buf) => {
-      (buf as Buffer).write(assistantLine);
-      return assistantLine.length;
+    const spawnSpy = spy((_file: string, _args: string[], _opts: unknown) => mockPty);
+    const fsFake = makeMockFs({ statSize: 0, fstatSize: assistantLine.length, readContent: assistantLine });
+    const promise = warmSession('abc-123', "Reply 'ok'", undefined, 'my-project', {
+      fs: fsFake,
+      spawn: spawnSpy as unknown as SpawnFn,
+      execFile: exec,
     });
-    mockFs.closeSync.mockReturnValue(undefined);
 
-    exitCallback({ exitCode: 0 });
+    mockPty.emitData('> ');
+    await time.tickAsync(3500);
+    mockPty.emitData('ok\n> ');
+    await time.tickAsync(3500);
+    mockPty.emitExit({ exitCode: 0 });
+    await time.runMicrotasks();
 
     const result = await promise;
     expect(result.error).toBeNull();
-    expect(mockPty.spawn).toHaveBeenCalledWith(
-      expect.any(String),
-      ['--resume', 'abc-123'],
-      expect.objectContaining({ cwd: undefined }),
-    );
+    expect((spawnSpy.calls[0].args[2] as { cwd?: string }).cwd).toBeUndefined();
   });
 
   it('returns parsed error when JSONL has no assistant message', async () => {
-    mockFs.statSync.mockReturnValue({ size: 0 } as fs.Stats);
-
     const userLine = JSON.stringify({ type: 'user', message: { role: 'user', content: 'hello' } });
-
-    const promise = warmSession('abc-123', "Reply 'ok'", '/test', 'my-project');
-
-    dataCallback('> ');
-    await vi.advanceTimersByTimeAsync(3500);
-    dataCallback('ok\n> ');
-    await vi.advanceTimersByTimeAsync(3500);
-
-    const fd = 42;
-    mockFs.openSync.mockReturnValue(fd);
-    mockFs.fstatSync.mockReturnValue({ size: userLine.length } as fs.Stats);
-    mockFs.readSync.mockImplementation((_fd, buf) => {
-      (buf as Buffer).write(userLine);
-      return userLine.length;
+    const fsFake = makeMockFs({ statSize: 0, fstatSize: userLine.length, readContent: userLine });
+    const promise = warmSession('abc-123', "Reply 'ok'", '/test', 'my-project', {
+      fs: fsFake,
+      spawn,
+      execFile: exec,
     });
-    mockFs.closeSync.mockReturnValue(undefined);
 
-    exitCallback({ exitCode: 0 });
+    mockPty.emitData('> ');
+    await time.tickAsync(3500);
+    mockPty.emitData('ok\n> ');
+    await time.tickAsync(3500);
+    mockPty.emitExit({ exitCode: 0 });
+    await time.runMicrotasks();
 
     const result = await promise;
     expect(result.error).toContain('No assistant message');
@@ -481,87 +467,67 @@ describe('warmSession', () => {
   });
 
   it('returns error when no new JSONL content found after warm', async () => {
-    mockFs.statSync.mockReturnValue({ size: 100 } as fs.Stats);
+    // statSize === fstatSize → bytesToRead is 0 → no new content.
+    const fsFake = makeMockFs({ statSize: 100, fstatSize: 100 });
+    const promise = warmSession('abc-123', "Reply 'ok'", '/test', 'my-project', {
+      fs: fsFake,
+      spawn,
+      execFile: exec,
+    });
 
-    const promise = warmSession('abc-123', "Reply 'ok'", '/test', 'my-project');
-
-    dataCallback('> ');
-    await vi.advanceTimersByTimeAsync(3500);
-    dataCallback('ok\n> ');
-    await vi.advanceTimersByTimeAsync(3500);
-
-    // JSONL file didn't grow
-    const fd = 42;
-    mockFs.openSync.mockReturnValue(fd);
-    mockFs.fstatSync.mockReturnValue({ size: 100 } as fs.Stats);
-    mockFs.closeSync.mockReturnValue(undefined);
-
-    exitCallback({ exitCode: 0 });
+    mockPty.emitData('> ');
+    await time.tickAsync(3500);
+    mockPty.emitData('ok\n> ');
+    await time.tickAsync(3500);
+    mockPty.emitExit({ exitCode: 0 });
+    await time.runMicrotasks();
 
     const result = await promise;
     expect(result.error).toBe('No new JSONL content after warm');
   });
 
   it('handles finish called multiple times (idempotent)', async () => {
-    mockFs.statSync.mockReturnValue({ size: 0 } as fs.Stats);
-
     const assistantLine = makeJsonlLine({
       model: 'claude-opus-4-6',
       usage: { cache_read_input_tokens: 80000, output_tokens: 3 },
     });
-
-    const promise = warmSession('abc-123', "Reply 'ok'", '/test', 'my-project');
-
-    dataCallback('> ');
-    await vi.advanceTimersByTimeAsync(3500);
-    dataCallback('ok\n> ');
-    await vi.advanceTimersByTimeAsync(3500);
-
-    const fd = 42;
-    mockFs.openSync.mockReturnValue(fd);
-    mockFs.fstatSync.mockReturnValue({ size: assistantLine.length } as fs.Stats);
-    mockFs.readSync.mockImplementation((_fd, buf) => {
-      (buf as Buffer).write(assistantLine);
-      return assistantLine.length;
+    const fsFake = makeMockFs({ statSize: 0, fstatSize: assistantLine.length, readContent: assistantLine });
+    const promise = warmSession('abc-123', "Reply 'ok'", '/test', 'my-project', {
+      fs: fsFake,
+      spawn,
+      execFile: exec,
     });
-    mockFs.closeSync.mockReturnValue(undefined);
 
-    // Both exit and grace timeout fire
-    exitCallback({ exitCode: 0 });
-    await vi.advanceTimersByTimeAsync(6000);
+    mockPty.emitData('> ');
+    await time.tickAsync(3500);
+    mockPty.emitData('ok\n> ');
+    await time.tickAsync(3500);
+    mockPty.emitExit({ exitCode: 0 });
+    await time.tickAsync(6000);
 
     const result = await promise;
     expect(result.error).toBeNull();
   });
 
   it('handles data received after done phase', async () => {
-    mockFs.statSync.mockReturnValue({ size: 0 } as fs.Stats);
-
     const assistantLine = makeJsonlLine({
       model: 'claude-opus-4-6',
       usage: { cache_read_input_tokens: 80000, output_tokens: 3 },
     });
-
-    const promise = warmSession('abc-123', "Reply 'ok'", '/test', 'my-project');
-
-    dataCallback('> ');
-    await vi.advanceTimersByTimeAsync(3500); // sends prompt
-    dataCallback('ok\n> ');
-    await vi.advanceTimersByTimeAsync(3500); // sends /exit, phase = done
-
-    // Data arrives after phase is 'done' - should not reset settle
-    dataCallback('extra output');
-
-    const fd = 42;
-    mockFs.openSync.mockReturnValue(fd);
-    mockFs.fstatSync.mockReturnValue({ size: assistantLine.length } as fs.Stats);
-    mockFs.readSync.mockImplementation((_fd, buf) => {
-      (buf as Buffer).write(assistantLine);
-      return assistantLine.length;
+    const fsFake = makeMockFs({ statSize: 0, fstatSize: assistantLine.length, readContent: assistantLine });
+    const promise = warmSession('abc-123', "Reply 'ok'", '/test', 'my-project', {
+      fs: fsFake,
+      spawn,
+      execFile: exec,
     });
-    mockFs.closeSync.mockReturnValue(undefined);
 
-    exitCallback({ exitCode: 0 });
+    mockPty.emitData('> ');
+    await time.tickAsync(3500);
+    mockPty.emitData('ok\n> ');
+    await time.tickAsync(3500);
+    mockPty.emitData('extra output');
+    mockPty.emitExit({ exitCode: 0 });
+    await time.runMicrotasks();
 
     const result = await promise;
     expect(result.error).toBeNull();
@@ -571,8 +537,6 @@ describe('warmSession', () => {
 describe('makeWarmer', () => {
   it('returns a warmFn bound to the supplied deps', async () => {
     const warmFn = makeWarmer({});
-    // No projectDir → the bound function takes the synchronous error path,
-    // exercising the curried call without needing a full PTY fixture.
     const result = await warmFn('abc-123', "Reply 'ok'", '/tmp');
     expect(result.error).toBe('No projectDir provided');
     expect(result.sessionId).toBe('abc-123');

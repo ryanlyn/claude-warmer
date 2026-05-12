@@ -7,14 +7,8 @@ import * as pty from 'node-pty';
  * The app and its library modules accept an optional `Deps` bag at their
  * public boundaries. Production code uses `realDeps()`; tests can supply
  * in-memory fakes for Fs, a virtual clock, a deterministic RNG, and a
- * PTY-free Spawn implementation. This replaces module-level `vi.mock(...)`
- * incantations with explicit, typed fakes - the call sites that read files,
- * spawn processes, or ask the clock are visible in each function signature.
- *
- * Existing tests that use `vi.useFakeTimers()` and `vi.mock('node:fs')`
- * continue to work: the real Clock defers to the live `Date.now` /
- * `setInterval` globals, which vi replaces when fake timers are on, and the
- * real Fs is the actual `node:fs` module that `vi.mock` intercepts.
+ * PTY-free Spawn implementation. The call sites that read files, spawn
+ * processes, or ask the clock are visible in each function signature.
  */
 
 export interface Clock {

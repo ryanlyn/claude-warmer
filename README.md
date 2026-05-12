@@ -10,7 +10,7 @@ Not affiliated with or endorsed by Anthropic.
 
 ## Requirements
 
-- Node.js 20 or newer
+- Node.js 20 or newer (for installing the published npm package)
 - Claude Code installed and authenticated so `claude` is available on your `PATH`
 - At least one resumable Claude Code session already present in `~/.claude/projects/`
 
@@ -61,23 +61,35 @@ Options:
 
 ## Development
 
+The project is written in [Deno](https://deno.land) and built for npm via [dnt](https://jsr.io/@deno/dnt). End users still install it from npm (`npm install -g claude-warmer`); only contributors need Deno.
+
 ```bash
 git clone https://github.com/ryanlyn/claude-warmer.git
 cd claude-warmer
-npm install
-npm run dev
+deno install --allow-scripts=npm:node-pty    # node-pty needs a native build step
+deno task dev
 ```
 
 If `node-pty` fails with `posix_spawnp` on macOS Apple Silicon, run:
 
 ```bash
-chmod +x node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper
+chmod +x node_modules/.deno/node-pty@1.1.0/node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper
 ```
 
-### Tests
+### Tasks
 
 ```bash
-npm test          # unit tests (100% coverage required)
-npm run check     # lint + format + coverage
-npm run test:e2e  # E2E cache benchmark suite (hits real API, slow)
+deno task test            # unit + component tests
+deno task test:coverage   # same, with coverage report
+deno task test:integration
+deno task test:e2e        # E2E cache benchmark suite (hits real API, slow)
+deno task check           # fmt --check + lint + coverage
+deno task build:npm       # produce the publishable npm package under ./npm
+```
+
+To publish to npm:
+
+```bash
+deno task build:npm
+cd npm && npm publish
 ```

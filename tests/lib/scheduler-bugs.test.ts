@@ -1,17 +1,17 @@
 /**
  * Reproducer tests for hypothesized cache-expiry bugs in the scheduler.
- *
- * Background: session fd23508e saw two assistant turns 10.9h apart with
- * cache_read=0 and cache_creation~38K on both. If the warmer was active,
- * at least the second turn should have shown a cache read. These tests
- * stress-test scheduling edge cases that could explain that.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { Scheduler } from '../../src/lib/scheduler.js';
-import type { Session, WarmResult } from '../../src/lib/types.js';
-import { WARM_THRESHOLD_MS, SAFETY_MARGIN_MS, BACKOFF_SCHEDULE_MS } from '../../src/lib/types.js';
+import { afterEach, beforeEach, describe, it } from '@std/testing/bdd';
+import { expect } from '@std/expect';
+import { spy, stub } from '@std/testing/mock';
+import { FakeTime } from '@std/testing/time';
+import { Scheduler } from '../../src/lib/scheduler.ts';
+import type { Session, WarmResult } from '../../src/lib/types.ts';
+import { BACKOFF_SCHEDULE_MS, SAFETY_MARGIN_MS, WARM_THRESHOLD_MS } from '../../src/lib/types.ts';
 
-const CACHE_TTL_MS = 60 * 60 * 1000; // Anthropic 1-hour prompt cache TTL
+type WarmFnSig = (sessionId: string, prompt: string, cwd?: string, projectDir?: string) => Promise<WarmResult>;
+
+const CACHE_TTL_MS = 60 * 60 * 1000;
 
 function makeSession(overrides: Partial<Session> = {}): Session {
   return {
@@ -48,108 +48,105 @@ function okResult(sessionId: string): WarmResult {
 }
 
 describe('Scheduler bug reproducers', () => {
+  let time: FakeTime;
+
   beforeEach(() => {
-    vi.useFakeTimers();
+    time = new FakeTime();
   });
 
   afterEach(() => {
-    vi.useRealTimers();
+    time.restore();
   });
 
-  /**
-   * B4 (formerly H1): with the SAFETY_MARGIN_MS clamp on `nextAfterSuccess`,
-   * back-to-back warms in a single `tick` should always finish before the
-   * cache TTL expires for any session, even at realistic warm durations
-   * (~80s) and the worst case where all sessions are due at the same instant.
-   *
-   * Setup: previous successful warms scheduled `nextWarmAt = warmTime + cap`
-   * where `cap = WARM_THRESHOLD_MS - SAFETY_MARGIN_MS = 50min`. So the
-   * cache anchor sits at `anchor - 50min` and the TTL expires 10min from
-   * `anchor`. With 5 sessions @ 80s, session #5 starts ~5.3min in, well
-   * within the 10min headroom.
-   */
   it('B4: sequential tick keeps every session within the 60min cache TTL after the safety-margin clamp', async () => {
+    // Drive a virtual clock by hand instead of actually advancing time — the
+    // scheduler reads clock.now() on each iteration, so we can simulate an
+    // 80-second warm by bumping the clock before warmFn resolves.
+    time.restore();
     const anchor = Date.now();
     const WARM_DURATION_MS = 80_000;
     const cap = WARM_THRESHOLD_MS - SAFETY_MARGIN_MS;
 
-    const startTimes: number[] = [];
-    const warmFn = vi.fn<(sessionId: string) => Promise<WarmResult>>().mockImplementation(async (sessionId) => {
-      startTimes.push(Date.now());
-      await new Promise((r) => setTimeout(r, WARM_DURATION_MS));
-      return okResult(sessionId);
-    });
-    const scheduler = new Scheduler(warmFn as unknown as ConstructorParameters<typeof Scheduler>[0]);
+    let virtualNow = anchor;
+    const clock = {
+      now: () => virtualNow,
+      setInterval: globalThis.setInterval as unknown as typeof globalThis.setInterval,
+      clearInterval: globalThis.clearInterval,
+      setTimeout: globalThis.setTimeout as unknown as typeof globalThis.setTimeout,
+      clearTimeout: globalThis.clearTimeout,
+    };
 
-    // After the previous tick's successful warm, nextWarmAt was clamped to
-    // warmTime + cap. So the cache anchor for each session sits `cap` ago.
+    const startTimes: number[] = [];
+    const warmFn = spy((sessionId: string) => {
+      startTimes.push(virtualNow);
+      virtualNow += WARM_DURATION_MS;
+      return Promise.resolve(okResult(sessionId));
+    });
+    const scheduler = new Scheduler(warmFn as unknown as WarmFnSig, Math.random, clock);
+
     const sessions: Session[] = Array.from({ length: 5 }, (_, i) =>
       makeSession({
         sessionId: `s${i}`,
         lastAssistantTimestamp: anchor - cap,
         lastWarmedAt: anchor - cap,
         nextWarmAt: anchor,
-      }),
-    );
+      }));
 
-    const tickPromise = scheduler.runDueWarmups(sessions, 'Reply ok', 55);
-    await vi.advanceTimersByTimeAsync(WARM_DURATION_MS * 5 + 100);
-    await tickPromise;
+    await scheduler.runDueWarmups(sessions, 'Reply ok', 55);
 
-    expect(warmFn).toHaveBeenCalledTimes(5);
-    // Cache TTL for each session is anchor - cap + 60min == anchor + (60min - cap).
+    expect(warmFn.calls.length).toBe(5);
     const cacheExpiresAt = anchor - cap + CACHE_TTL_MS;
     const startOfFifthWarm = startTimes[4];
     expect(startOfFifthWarm).toBeLessThanOrEqual(cacheExpiresAt);
     expect(cacheExpiresAt - startOfFifthWarm).toBeGreaterThan(0);
+
+    // Re-install FakeTime for afterEach hygiene.
+    time = new FakeTime();
   });
 
-  /**
-   * H3: even at worst-case rng, `bootstrap` clamps nextWarmAt at
-   * `anchor + WARM_THRESHOLD_MS` (55min). Combined with tick-loop jitter
-   * (up to 30s) and warmSession runtime (up to ~120s), warm arrival at
-   * the API stays inside the 60-min cache TTL.
-   */
   it('H3: bootstrap nextWarmAt never overshoots 60min TTL alone', () => {
     const anchor = Date.now() - 10 * 60 * 1000;
-    // Force Math.random to the worst-case (1.0) so positive jitter pushes
-    // the candidate into the upper-clamp regime.
-    const randSpy = vi.spyOn(Math, 'random').mockReturnValue(0.999999);
+    const randStub = stub(Math, 'random', () => 0.999999);
 
-    const scheduler = new Scheduler(vi.fn() as unknown as ConstructorParameters<typeof Scheduler>[0]);
-    const session = makeSession({ lastAssistantTimestamp: anchor });
-    const [bootstrapped] = scheduler.bootstrap([session], 55);
+    try {
+      const scheduler = new Scheduler(spy(() => Promise.resolve(okResult('x'))) as unknown as WarmFnSig);
+      const session = makeSession({ lastAssistantTimestamp: anchor });
+      const [bootstrapped] = scheduler.bootstrap([session], 55);
 
-    const cacheExpiresAt = anchor + CACHE_TTL_MS;
-    const warmWindowEnd = anchor + WARM_THRESHOLD_MS; // 55min
+      const cacheExpiresAt = anchor + CACHE_TTL_MS;
+      const warmWindowEnd = anchor + WARM_THRESHOLD_MS;
 
-    expect(bootstrapped.nextWarmAt!).toBeLessThanOrEqual(warmWindowEnd);
-    // Even with tick jitter (30s) + warmSession (120s) we stay under TTL
-    const worstCaseArrival = bootstrapped.nextWarmAt! + 30_000 + 120_000;
-    expect(worstCaseArrival).toBeLessThan(cacheExpiresAt);
-    randSpy.mockRestore();
+      expect(bootstrapped.nextWarmAt!).toBeLessThanOrEqual(warmWindowEnd);
+      const worstCaseArrival = bootstrapped.nextWarmAt! + 30_000 + 120_000;
+      expect(worstCaseArrival).toBeLessThan(cacheExpiresAt);
+    } finally {
+      randStub.restore();
+    }
   });
 
-  /**
-   * B5 (formerly H4): on a transient error, the next attempt should fire on
-   * the bounded backoff schedule (BACKOFF_SCHEDULE_MS[0] == 30s on the
-   * first failure), NOT a full intervalMs later. This keeps the retry
-   * comfortably inside the 60-min cache TTL.
-   */
   it('B5: error path retries on the bounded backoff well within 60min cache TTL', async () => {
+    time.restore();
     const anchor = Date.now();
+    let virtualNow = anchor;
+    const clock = {
+      now: () => virtualNow,
+      setInterval: globalThis.setInterval as unknown as typeof globalThis.setInterval,
+      clearInterval: globalThis.clearInterval,
+      setTimeout: globalThis.setTimeout as unknown as typeof globalThis.setTimeout,
+      clearTimeout: globalThis.clearTimeout,
+    };
 
-    const warmFn = vi.fn<(sessionId: string) => Promise<WarmResult>>().mockImplementation(async () => {
-      await new Promise((r) => setTimeout(r, 10_000));
-      return {
+    const warmFn = spy(() => {
+      virtualNow += 10_000;
+      return Promise.resolve({
         sessionId: 's0',
         usage: { inputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, outputTokens: 0 },
         model: '',
         costUsd: 0,
         error: 'pty spawn failed',
-      };
+      });
     });
-    const scheduler = new Scheduler(warmFn as unknown as ConstructorParameters<typeof Scheduler>[0]);
+    const scheduler = new Scheduler(warmFn as unknown as WarmFnSig, Math.random, clock);
 
     const lastSuccessfulWarm = anchor - 10 * 60 * 1000;
     const cacheExpiresAt = lastSuccessfulWarm + CACHE_TTL_MS;
@@ -161,19 +158,17 @@ describe('Scheduler bug reproducers', () => {
       nextWarmAt: anchor,
     });
 
-    const tickPromise = scheduler.runDueWarmups([session], 'Reply ok', 55);
-    await vi.advanceTimersByTimeAsync(10_100);
-    const patches = await tickPromise;
+    const patches = await scheduler.runDueWarmups([session], 'Reply ok', 55);
     const failed = patches.find((p) => p.type === 'failed');
 
     expect(failed).toMatchObject({ type: 'failed', consecutiveErrors: 1 });
     if (!failed || failed.type !== 'failed') throw new Error('expected failed patch');
 
-    // warmTime ~= anchor + 10s, retry at warmTime + BACKOFF_SCHEDULE_MS[0] (30s).
     const retryAt = failed.nextWarmAt;
     const expectedRetry = anchor + 10_000 + BACKOFF_SCHEDULE_MS[0];
     expect(retryAt).toBe(expectedRetry);
-    // Comfortably inside the cache TTL.
     expect(retryAt).toBeLessThan(cacheExpiresAt);
+
+    time = new FakeTime();
   });
 });

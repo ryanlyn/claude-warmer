@@ -1,9 +1,11 @@
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { Buffer } from 'node:buffer';
 import { execFileSync } from 'node:child_process';
-import type { WarmResult, SessionUsage } from './types.js';
-import { calcWarmCost } from './pricing.js';
-import { realClock, realFs, realSpawn, type Clock, type Fs, type SpawnFn } from './deps.js';
+import process from 'node:process';
+import type { SessionUsage, WarmResult } from './types.ts';
+import { calcWarmCost } from './pricing.ts';
+import { type Clock, type Fs, realClock, realFs, realSpawn, type SpawnFn } from './deps.ts';
 
 const EMPTY_USAGE: SessionUsage = {
   inputTokens: 0,
@@ -17,7 +19,9 @@ const EXIT_GRACE_MS = 5_000;
 
 let resolvedClaudePath: string | null = null;
 
-export function getClaudePath(): string {
+export type ExecFileSyncFn = (file: string, args: string[], options: { encoding: 'utf-8' }) => string;
+
+export function getClaudePath(execFile: ExecFileSyncFn = execFileSync as unknown as ExecFileSyncFn): string {
   if (resolvedClaudePath) return resolvedClaudePath;
   // Integration-test escape hatch: CLAUDE_PATH overrides `which claude`
   // so tests can point the warmer at a deterministic fake binary.
@@ -27,7 +31,7 @@ export function getClaudePath(): string {
     return resolvedClaudePath;
   }
   try {
-    resolvedClaudePath = execFileSync('which', ['claude'], { encoding: 'utf-8' }).trim();
+    resolvedClaudePath = execFile('which', ['claude'], { encoding: 'utf-8' }).trim();
   } catch {
     resolvedClaudePath = 'claude';
   }
@@ -84,6 +88,7 @@ export interface WarmerDeps {
   fs?: Fs;
   spawn?: SpawnFn;
   clock?: Clock;
+  execFile?: ExecFileSyncFn;
 }
 
 export function warmSession(
@@ -96,6 +101,7 @@ export function warmSession(
   const fs = deps.fs ?? realFs;
   const spawn = deps.spawn ?? realSpawn;
   const clock = deps.clock ?? realClock;
+  const execFile = deps.execFile;
 
   const errorResult = (error: string): WarmResult => ({
     sessionId,
@@ -172,7 +178,7 @@ export function warmSession(
 
     let ptyProcess: ReturnType<SpawnFn>;
     try {
-      ptyProcess = spawn(getClaudePath(), ['--resume', sessionId], {
+      ptyProcess = spawn(getClaudePath(execFile), ['--resume', sessionId], {
         name: 'xterm-color',
         cols: 120,
         rows: 40,

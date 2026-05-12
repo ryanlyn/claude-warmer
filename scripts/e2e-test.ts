@@ -1,14 +1,15 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env -S deno run -A
 /**
  * E2E test: exercises the real warming pipeline against actual sessions.
  * Discovers sessions, bootstraps scheduler, runs tick cycles, verifies updates.
  */
-import { discoverSessions } from '../src/lib/sessions.js';
-import { warmSession } from '../src/lib/warmer.js';
-import { Scheduler } from '../src/lib/scheduler.js';
-import { calcEstimatedWarmCost } from '../src/lib/pricing.js';
-import { applyWarmPatches } from '../src/lib/app-reducer.js';
-import type { Session } from '../src/lib/types.js';
+import process from 'node:process';
+import { discoverSessions } from '../src/lib/sessions.ts';
+import { warmSession } from '../src/lib/warmer.ts';
+import { Scheduler } from '../src/lib/scheduler.ts';
+import { calcEstimatedWarmCost } from '../src/lib/pricing.ts';
+import { applyWarmPatches } from '../src/lib/app-reducer.ts';
+import type { Session } from '../src/lib/types.ts';
 
 const INTERVAL_MINUTES = 1; // 1 min for testing
 const WARM_PROMPT = "Reply 'ok'";
@@ -23,10 +24,12 @@ function printSession(s: Session) {
   const cached = s.cacheReadTokens + s.cacheWriteTokens;
   const warmCost = calcEstimatedWarmCost(cached, s.isWarm, s.model);
   console.log(
-    `  ${s.isLive ? '●' : ' '} [${s.isWarm ? 'warm' : 'cold'}] ${s.sessionId.slice(0, 8)} ${s.name.slice(0, 40).padEnd(40)} ` +
-    `cached=${cached.toLocaleString().padStart(8)} warmCount=${s.warmCount} ` +
-    `warmCost=$${warmCost.toFixed(4)} next=${s.nextWarmAt ? new Date(s.nextWarmAt).toISOString() : '-'} ` +
-    `status=${s.warmStatus} lastErr=${s.lastWarmError || '-'}`,
+    `  ${s.isLive ? '●' : ' '} [${s.isWarm ? 'warm' : 'cold'}] ${s.sessionId.slice(0, 8)} ${
+      s.name.slice(0, 40).padEnd(40)
+    } ` +
+      `cached=${cached.toLocaleString().padStart(8)} warmCount=${s.warmCount} ` +
+      `warmCost=$${warmCost.toFixed(4)} next=${s.nextWarmAt ? new Date(s.nextWarmAt).toISOString() : '-'} ` +
+      `status=${s.warmStatus} lastErr=${s.lastWarmError || '-'}`,
   );
 }
 
@@ -36,7 +39,7 @@ async function main() {
   log(`Found ${allSessions.length} sessions total`);
 
   // Pick 2 live sessions for testing (they have valid session IDs)
-  const liveSessions = allSessions.filter(s => s.isLive);
+  const liveSessions = allSessions.filter((s) => s.isLive);
   log(`Found ${liveSessions.length} live sessions`);
 
   if (liveSessions.length < 2) {
@@ -45,7 +48,7 @@ async function main() {
     process.exit(1);
   }
 
-  const testSessions = liveSessions.slice(0, 2).map(s => ({ ...s, selected: true }));
+  const testSessions = liveSessions.slice(0, 2).map((s) => ({ ...s, selected: true }));
   log(`Testing with ${testSessions.length} sessions:`);
   testSessions.forEach(printSession);
 
@@ -54,7 +57,7 @@ async function main() {
   const scheduler = new Scheduler(warmSession);
   let sessions = scheduler.bootstrap(testSessions, INTERVAL_MINUTES);
   // Override nextWarmAt to now so they warm on first tick
-  sessions = sessions.map(s => ({ ...s, nextWarmAt: s.selected ? Date.now() : null }));
+  sessions = sessions.map((s) => ({ ...s, nextWarmAt: s.selected ? Date.now() : null }));
   log('After bootstrap (forced to now):');
   sessions.forEach(printSession);
 
@@ -62,18 +65,20 @@ async function main() {
   for (let tick = 1; tick <= NUM_TICKS; tick++) {
     // Wait for the earliest nextWarmAt or the tick interval
     const earliestNext = sessions
-      .filter(s => s.nextWarmAt !== null)
+      .filter((s) => s.nextWarmAt !== null)
       .reduce((min, s) => Math.min(min, s.nextWarmAt!), Infinity);
 
-    const waitMs = earliestNext === Infinity
-      ? TICK_INTERVAL_MS
-      : Math.max(0, earliestNext - Date.now() + 1000); // +1s buffer
+    const waitMs = earliestNext === Infinity ? TICK_INTERVAL_MS : Math.max(0, earliestNext - Date.now() + 1000); // +1s buffer
 
     log(`\n--- Tick ${tick}/${NUM_TICKS} - waiting ${Math.ceil(waitMs / 1000)}s for next warm ---`);
-    await new Promise(r => setTimeout(r, waitMs));
+    await new Promise((r) => setTimeout(r, waitMs));
 
     log(`Running tick...`);
-    const before = sessions.map(s => ({ id: s.sessionId, warmCount: s.warmCount, cached: s.cacheReadTokens + s.cacheWriteTokens }));
+    const before = sessions.map((s) => ({
+      id: s.sessionId,
+      warmCount: s.warmCount,
+      cached: s.cacheReadTokens + s.cacheWriteTokens,
+    }));
 
     const patches = await scheduler.runDueWarmups(sessions, WARM_PROMPT, INTERVAL_MINUTES);
     sessions = applyWarmPatches(sessions, patches);
@@ -83,14 +88,16 @@ async function main() {
 
     // Verify changes
     for (const s of sessions) {
-      const prev = before.find(b => b.id === s.sessionId)!;
+      const prev = before.find((b) => b.id === s.sessionId)!;
       const newCached = s.cacheReadTokens + s.cacheWriteTokens;
 
       if (s.warmCount > prev.warmCount) {
         log(`  CHECK: ${s.sessionId.slice(0, 8)} warmCount ${prev.warmCount} -> ${s.warmCount}`);
       }
       if (newCached !== prev.cached) {
-        log(`  CHECK: ${s.sessionId.slice(0, 8)} cached ${prev.cached.toLocaleString()} -> ${newCached.toLocaleString()}`);
+        log(
+          `  CHECK: ${s.sessionId.slice(0, 8)} cached ${prev.cached.toLocaleString()} -> ${newCached.toLocaleString()}`,
+        );
       }
       if (s.warmStatus === 'error') {
         log(`  ERROR: ${s.sessionId.slice(0, 8)} failed: ${s.lastWarmError}`);
@@ -104,7 +111,11 @@ async function main() {
   for (const s of sessions) {
     const cached = s.cacheReadTokens + s.cacheWriteTokens;
     log(
-      `Session ${s.sessionId.slice(0, 8)}: warmCount=${s.warmCount} cached=${cached.toLocaleString()} status=${s.warmStatus} nextWarmAt=${s.nextWarmAt ? 'set' : 'null'}`,
+      `Session ${
+        s.sessionId.slice(0, 8)
+      }: warmCount=${s.warmCount} cached=${cached.toLocaleString()} status=${s.warmStatus} nextWarmAt=${
+        s.nextWarmAt ? 'set' : 'null'
+      }`,
     );
 
     if (s.warmCount === 0 && s.selected) {
@@ -131,7 +142,7 @@ async function main() {
   scheduler.stop();
 }
 
-main().catch(err => {
+main().catch((err) => {
   console.error('E2E test crashed:', err);
   process.exit(1);
 });

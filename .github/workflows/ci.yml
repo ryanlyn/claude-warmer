@@ -11,13 +11,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-      - run: npm ci
-      - run: npm run lint
-      - run: npm run format:check
-      - run: npm run test:coverage
-      - run: npm run build
-      - run: npm pack --dry-run
+      - run: deno install --allow-scripts=npm:node-pty
+      - run: deno fmt --check
+      - run: deno lint
+      - run: deno task test:coverage
+      - run: deno task build:npm
+      - run: cd npm && npm pack --dry-run

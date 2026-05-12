@@ -1,15 +1,16 @@
 import React from 'react';
-import { describe, it, expect } from 'vitest';
+import { describe, it } from '@std/testing/bdd';
+import { expect } from '@std/expect';
 import { render } from 'ink-testing-library';
-import { Header } from '../../src/components/header.js';
+import { Header } from '../../src/components/header.tsx';
 
-describe('Header', () => {
+describe({ name: 'Header', sanitizeOps: false, sanitizeResources: false }, () => {
   it('shows app name', () => {
     const { lastFrame } = render(
       <Header
         warmingEnabled={false}
         intervalMinutes={55}
-        warmPrompt="Reply with only the word OK"
+        warmPrompt='Reply with only the word OK'
         refreshIntervalSec={30}
         lastRefreshed={Date.now()}
       />,
@@ -22,7 +23,7 @@ describe('Header', () => {
       <Header
         warmingEnabled={false}
         intervalMinutes={55}
-        warmPrompt="Reply with only the word OK"
+        warmPrompt='Reply with only the word OK'
         refreshIntervalSec={30}
         lastRefreshed={Date.now()}
       />,
@@ -33,9 +34,9 @@ describe('Header', () => {
   it('shows active state', () => {
     const { lastFrame } = render(
       <Header
-        warmingEnabled={true}
+        warmingEnabled
         intervalMinutes={55}
-        warmPrompt="Reply with only the word OK"
+        warmPrompt='Reply with only the word OK'
         refreshIntervalSec={30}
         lastRefreshed={Date.now()}
       />,
@@ -48,7 +49,7 @@ describe('Header', () => {
       <Header
         warmingEnabled={false}
         intervalMinutes={30}
-        warmPrompt="Reply with only the word OK"
+        warmPrompt='Reply with only the word OK'
         refreshIntervalSec={30}
         lastRefreshed={Date.now()}
       />,
@@ -61,7 +62,7 @@ describe('Header', () => {
       <Header
         warmingEnabled={false}
         intervalMinutes={55}
-        warmPrompt="Say hi"
+        warmPrompt='Say hi'
         refreshIntervalSec={30}
         lastRefreshed={Date.now()}
       />,
@@ -74,7 +75,7 @@ describe('Header', () => {
       <Header
         warmingEnabled={false}
         intervalMinutes={55}
-        warmPrompt="ok"
+        warmPrompt='ok'
         refreshIntervalSec={30}
         lastRefreshed={null}
       />,
@@ -87,7 +88,7 @@ describe('Header', () => {
       <Header
         warmingEnabled={false}
         intervalMinutes={55}
-        warmPrompt="Reply with only the word OK"
+        warmPrompt='Reply with only the word OK'
         refreshIntervalSec={30}
         lastRefreshed={Date.now()}
       />,
