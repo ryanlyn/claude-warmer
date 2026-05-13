@@ -42,6 +42,6 @@ TUI tool that keeps Claude Code session caches warm by periodically resuming ses
 
 - Tests inject typed fakes through the public `Deps`/`Fs`/`SpawnFn`/`Clock`/`WarmFn`/`ExecFileSyncFn`/`ExecSyncFn`/`KillFn` surfaces instead of patching modules at the runtime level. `App.deps` also accepts `copyToClipboard` and `TextInput` overrides for component tests.
 - E2E test is excluded from default `deno task test` (separate task; needs a real `claude` binary).
-- Coverage targets `src/` excluding `src/index.tsx`. Overall ~97% branch / ~96% line; the few uncovered lines were originally annotated `/* v8 ignore next */` in the vitest era - unreachable defensive guards.
+- Coverage targets `src/` excluding `src/index.tsx`. A few unreachable defensive guards keep the headline percentage just under 100%; Deno's coverage tool does not honor the inline ignore comments from the source.
 - Linux contributors may need to install `node-gyp` and rebuild node-pty if no prebuilt binary matches the host: `(cd node_modules/.deno/node-pty@*/node_modules/node-pty && node-gyp rebuild)`.
 - macOS Apple Silicon: `chmod +x node_modules/.deno/node-pty@*/node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper` after install if `posix_spawnp` fails.

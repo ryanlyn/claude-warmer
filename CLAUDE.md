@@ -42,6 +42,6 @@ Cross-process cache hit rates have varied across Claude Code versions as prompt 
 
 - Unit + component tests use typed dependency injection on the public surface (`Fs`, `SpawnFn`, `Clock`, `WarmFn`, `ExecSyncFn`, `ExecFileSyncFn`, etc.) instead of module-level mocking. App-level component tests inject `copyToClipboard` and `TextInput` via `App.deps` as well.
 - E2E test is excluded from default `deno task test` (separate task).
-- Coverage targets `src/` (excluding `src/index.tsx`); current overall is ~97% branch / ~96% line. The handful of uncovered lines were originally annotated `/* v8 ignore next */` in the vitest era - unreachable defensive guards.
+- Coverage targets `src/` (excluding `src/index.tsx`). A few defensive guards are marked unreachable in source comments; Deno's coverage tool does not treat those comments specially, so the headline percentage sits just under 100%.
 - Linux contributors may need to install `node-gyp` and rebuild node-pty's native module if no prebuilt binary matches the host (`(cd node_modules/.deno/node-pty@*/node_modules/node-pty && node-gyp rebuild)`).
 - macOS Apple Silicon may need `chmod +x node_modules/.deno/node-pty@*/node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper` after install.
