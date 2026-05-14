@@ -21,17 +21,36 @@ let resolvedClaudePath: string | null = null;
 
 export type ExecFileSyncFn = (file: string, args: string[], options: { encoding: 'utf-8' }) => string;
 
-export function getClaudePath(execFile: ExecFileSyncFn = execFileSync as unknown as ExecFileSyncFn): string {
+export function getClaudePath(
+  execFile: ExecFileSyncFn = execFileSync as unknown as ExecFileSyncFn,
+  platform: NodeJS.Platform = process.platform as NodeJS.Platform,
+): string {
   if (resolvedClaudePath) return resolvedClaudePath;
-  // Integration-test escape hatch: CLAUDE_PATH overrides `which claude`
-  // so tests can point the warmer at a deterministic fake binary.
+  // Integration-test escape hatch: CLAUDE_PATH overrides PATH lookup so
+  // tests can point the warmer at a deterministic fake binary.
   const envPath = process.env.CLAUDE_PATH;
   if (envPath && envPath.length > 0) {
     resolvedClaudePath = envPath;
     return resolvedClaudePath;
   }
+  const isWindows = platform === 'win32';
+  const probe = isWindows ? 'where' : 'which';
   try {
-    resolvedClaudePath = execFile('which', ['claude'], { encoding: 'utf-8' }).trim();
+    const output = execFile(probe, ['claude'], { encoding: 'utf-8' });
+    const candidates = output.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0);
+    if (candidates.length === 0) {
+      resolvedClaudePath = 'claude';
+    } else if (isWindows) {
+      // npm installs three shims alongside each other on Windows:
+      //   claude        (extensionless sh shim, unusable on ConPTY)
+      //   claude.cmd    (batch shim - what we want; CreateProcess dispatches via cmd.exe)
+      //   claude.ps1    (PowerShell shim - usable but needs `powershell -File`)
+      // Prefer .exe / .cmd / .bat so `pty.spawn` actually launches the CLI.
+      const executable = candidates.find((line) => /\.(exe|cmd|bat)$/i.test(line));
+      resolvedClaudePath = executable ?? candidates[0];
+    } else {
+      resolvedClaudePath = candidates[0];
+    }
   } catch {
     resolvedClaudePath = 'claude';
   }
