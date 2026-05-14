@@ -1,9 +1,17 @@
-import { describe, it, expect, afterEach, vi } from 'vitest';
-import { realDeps, realClock, realFs, realSpawn } from '../../src/lib/deps.js';
+import { afterEach, describe, it } from '@std/testing/bdd';
+import { expect } from '@std/expect';
+import { spy } from '@std/testing/mock';
+import { FakeTime } from '@std/testing/time';
+import { realClock, realDeps, realFs, realSpawn } from '../../src/lib/deps.ts';
 
 describe('deps', () => {
+  let time: FakeTime | null = null;
+
   afterEach(() => {
-    vi.useRealTimers();
+    if (time) {
+      time.restore();
+      time = null;
+    }
   });
 
   describe('realClock', () => {
@@ -16,28 +24,28 @@ describe('deps', () => {
     });
 
     it('setInterval / clearInterval round-trip', () => {
-      vi.useFakeTimers();
-      const cb = vi.fn();
+      time = new FakeTime();
+      const cb = spy(() => {});
       const id = realClock.setInterval(cb, 1000);
-      vi.advanceTimersByTime(2500);
-      expect(cb).toHaveBeenCalledTimes(2);
+      time.tick(2500);
+      expect(cb.calls.length).toBe(2);
       realClock.clearInterval(id);
-      vi.advanceTimersByTime(5000);
-      expect(cb).toHaveBeenCalledTimes(2);
+      time.tick(5000);
+      expect(cb.calls.length).toBe(2);
     });
 
     it('setTimeout / clearTimeout round-trip', () => {
-      vi.useFakeTimers();
-      const cb = vi.fn();
+      time = new FakeTime();
+      const cb = spy(() => {});
       const id = realClock.setTimeout(cb, 1000);
       realClock.clearTimeout(id);
-      vi.advanceTimersByTime(2000);
-      expect(cb).not.toHaveBeenCalled();
+      time.tick(2000);
+      expect(cb.calls.length).toBe(0);
 
-      const cb2 = vi.fn();
+      const cb2 = spy(() => {});
       realClock.setTimeout(cb2, 500);
-      vi.advanceTimersByTime(1000);
-      expect(cb2).toHaveBeenCalledTimes(1);
+      time.tick(1000);
+      expect(cb2.calls.length).toBe(1);
     });
   });
 

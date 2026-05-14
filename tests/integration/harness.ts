@@ -1,8 +1,8 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type * as fs from 'node:fs';
-import type { Fs } from '../../src/lib/deps.js';
-import type { WarmFn, WarmResult } from '../../src/lib/types.js';
+import type { Fs } from '../../src/lib/deps.ts';
+import type { WarmFn, WarmResult } from '../../src/lib/types.ts';
 
 export interface FakeJsonlSpec {
   projectDir: string;

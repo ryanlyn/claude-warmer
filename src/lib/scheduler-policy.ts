@@ -1,4 +1,4 @@
-import { WARM_THRESHOLD_MS, SAFETY_MARGIN_MS, BACKOFF_SCHEDULE_MS } from './types.js';
+import { BACKOFF_SCHEDULE_MS, SAFETY_MARGIN_MS, WARM_THRESHOLD_MS } from './types.ts';
 
 // Pure scheduling policy. Side-effect-free so the arithmetic can be tested
 // without fake timers or mocked warmers, and so alternative policies (e.g.

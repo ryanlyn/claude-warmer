@@ -1,9 +1,10 @@
 import * as path from 'node:path';
 import * as os from 'node:os';
-import type { Session } from './types.js';
-import { calcExpiryCost } from './pricing.js';
-import { WARM_THRESHOLD_MS } from './types.js';
-import { realClock, realFs, type Clock, type Fs } from './deps.js';
+import process from 'node:process';
+import type { Session } from './types.ts';
+import { calcExpiryCost } from './pricing.ts';
+import { WARM_THRESHOLD_MS } from './types.ts';
+import { type Clock, type Fs, realClock, realFs } from './deps.ts';
 
 interface ParsedSession {
   name: string;
@@ -106,9 +107,11 @@ function encodeCwd(cwd: string): string {
   return cwd.replace(/\//g, '-');
 }
 
-export function checkPidAlive(pid: number): boolean {
+export type KillFn = (pid: number, signal?: number | string) => void;
+
+export function checkPidAlive(pid: number, kill: KillFn = process.kill.bind(process) as KillFn): boolean {
   try {
-    process.kill(pid, 0);
+    kill(pid, 0);
     return true;
   } catch {
     return false;

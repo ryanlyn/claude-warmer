@@ -36,8 +36,7 @@ export function computeLayout(cols: number): ColumnLayout {
   const showExpiry = cols >= 100;
   const showDir = cols >= 80;
 
-  const fixed =
-    selectW +
+  const fixed = selectW +
     statusW +
     idW +
     (showDir ? dirW : 0) +

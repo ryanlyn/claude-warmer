@@ -1,12 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it } from '@std/testing/bdd';
+import { expect } from '@std/expect';
 import {
-  appReducer,
-  initialState,
   applyWarmPatches,
-  mergeDiscoverySnapshot,
+  appReducer,
   type AppSessionState,
-} from '../../src/lib/app-reducer.js';
-import type { Session } from '../../src/lib/types.js';
+  initialState,
+  mergeDiscoverySnapshot,
+} from '../../src/lib/app-reducer.ts';
+import type { Session } from '../../src/lib/types.ts';
 
 function session(overrides: Partial<Session> = {}): Session {
   return {

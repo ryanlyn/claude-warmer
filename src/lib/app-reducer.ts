@@ -1,5 +1,5 @@
-import type { Session, WarmPatch } from './types.js';
-import { calcExpiryCost } from './pricing.js';
+import type { Session, WarmPatch } from './types.ts';
+import { calcExpiryCost } from './pricing.ts';
 
 // Pure state machine for the session list. Effects in `app.tsx` compute
 // Scheduler/clock/random/fs results first, then dispatch data-only events so

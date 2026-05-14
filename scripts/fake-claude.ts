@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env -S deno run -A
 /**
  * Deterministic stand-in for the real `claude` binary.
  *
@@ -26,6 +26,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as readline from 'node:readline';
+import process from 'node:process';
 import { randomUUID } from 'node:crypto';
 
 interface Args {
@@ -92,7 +93,7 @@ function appendJsonl(projectDir: string, sessionId: string, line: string): void 
   fs.appendFileSync(file, line + '\n', 'utf-8');
 }
 
-async function main(): Promise<void> {
+function main(): void {
   const { sessionId } = parseArgs(process.argv.slice(2));
   if (!sessionId) {
     process.stderr.write('fake-claude: missing --resume <sessionId>\n');
@@ -175,7 +176,9 @@ async function main(): Promise<void> {
   });
 }
 
-main().catch((err) => {
+try {
+  main();
+} catch (err) {
   process.stderr.write(`fake-claude: crashed: ${(err as Error).message}\n`);
   process.exit(1);
-});
+}

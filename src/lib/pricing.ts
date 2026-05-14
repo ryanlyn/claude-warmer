@@ -1,4 +1,4 @@
-import type { SessionUsage } from './types.js';
+import type { SessionUsage } from './types.ts';
 
 interface ModelPricing {
   baseInputPerM: number;

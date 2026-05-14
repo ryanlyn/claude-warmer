@@ -1,17 +1,23 @@
-import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
-import { Box, Text, useInput, useApp, useStdout } from 'ink';
-import { TextInput } from '@inkjs/ui';
-import type { Session, WarmFn } from './lib/types.js';
-import { discoverSessions } from './lib/sessions.js';
-import { makeWarmer, warmSession } from './lib/warmer.js';
-import { Scheduler } from './lib/scheduler.js';
-import { copyToClipboard } from './lib/clipboard.js';
-import { computeLayout } from './lib/layout.js';
-import { appReducer, initialState, type AppSessionState } from './lib/app-reducer.js';
-import { realClock, realFs, type Clock, type Fs, type Random } from './lib/deps.js';
-import { Header } from './components/header.js';
-import { SessionTable } from './components/session-table.js';
-import { Footer } from './components/footer.js';
+import React, { type ComponentType, type ReactNode, useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { Box, Text, useApp, useInput, useStdout } from 'ink';
+import { TextInput as DefaultTextInput } from '@inkjs/ui';
+import type { Session, WarmFn } from './lib/types.ts';
+import { discoverSessions } from './lib/sessions.ts';
+import { makeWarmer, warmSession } from './lib/warmer.ts';
+import { Scheduler } from './lib/scheduler.ts';
+import { copyToClipboard as defaultCopyToClipboard } from './lib/clipboard.ts';
+import { computeLayout } from './lib/layout.ts';
+import { appReducer, type AppSessionState, initialState } from './lib/app-reducer.ts';
+import { type Clock, type Fs, type Random, realClock, realFs } from './lib/deps.ts';
+import { Header } from './components/header.tsx';
+import { SessionTable } from './components/session-table.tsx';
+import { Footer } from './components/footer.tsx';
+
+export interface TextInputProps {
+  defaultValue?: string;
+  onSubmit?: (value: string) => void;
+  children?: ReactNode;
+}
 
 interface AppProps {
   intervalMinutes: number;
@@ -33,6 +39,10 @@ interface AppProps {
     tickIntervalMs?: number;
     /** Polling cadence for the discoverSessions refresh. Defaults to 30s. */
     refreshIntervalMs?: number;
+    /** Clipboard provider override. Defaults to the platform-native execSync path. */
+    copyToClipboard?: (text: string) => void;
+    /** Text-input component override. Defaults to @inkjs/ui's TextInput. */
+    TextInput?: ComponentType<TextInputProps>;
   };
 }
 
@@ -57,12 +67,14 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
   const { stdout } = useStdout();
   const clock = deps.clock ?? realClock;
   const fs = deps.fs ?? realFs;
+  const copyToClipboard = deps.copyToClipboard ?? defaultCopyToClipboard;
+  const TextInput = deps.TextInput ?? DefaultTextInput;
   // When a caller injects fs/clock, bind them into the default warmFn too so
   // the injection is consistent end-to-end. When neither is overridden we
   // pass the raw warmSession through, which keeps tests that
   // `vi.mock('warmer.js')` working without also having to mock `makeWarmer`.
-  const warmFn =
-    deps.warmFn ?? (deps.fs !== undefined || deps.clock !== undefined ? makeWarmer({ fs, clock }) : warmSession);
+  const warmFn = deps.warmFn ??
+    (deps.fs !== undefined || deps.clock !== undefined ? makeWarmer({ fs, clock }) : warmSession);
   const random = deps.random ?? Math.random;
   const tickIntervalMs = deps.tickIntervalMs ?? DEFAULT_TICK_INTERVAL_MS;
   const refreshIntervalMs = deps.refreshIntervalMs ?? DEFAULT_REFRESH_INTERVAL_MS;
@@ -107,10 +119,10 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
       const known = new Set(stateRef.current.sessions.map((s) => s.sessionId));
       const fresh = stateRef.current.warmingEnabled
         ? raw.map((s) =>
-            !known.has(s.sessionId) && s.selected
-              ? schedulerRef.current.scheduleFirstWarm(s, stateRef.current.intervalMinutes)
-              : s,
-          )
+          !known.has(s.sessionId) && s.selected
+            ? schedulerRef.current.scheduleFirstWarm(s, stateRef.current.intervalMinutes)
+            : s
+        )
         : raw;
       dispatch({ type: 'DISCOVERY_SNAPSHOT_RECEIVED', fresh });
       setLastRefreshed(clock.now());
@@ -314,7 +326,7 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
   }, []);
 
   return (
-    <Box flexDirection="column">
+    <Box flexDirection='column'>
       <Header
         warmingEnabled={warmingEnabled}
         intervalMinutes={intervalMinutes}
@@ -331,7 +343,7 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
       />
       {editingField === 'prompt' && (
         <Box>
-          <Text bold color="cyan">
+          <Text bold color='cyan'>
             Prompt:{' '}
           </Text>
           <TextInput defaultValue={warmPrompt} onSubmit={handlePromptSubmit} />
@@ -339,7 +351,7 @@ export function App({ intervalMinutes: initialInterval, warmPrompt: initialPromp
       )}
       {editingField === 'interval' && (
         <Box>
-          <Text bold color="cyan">
+          <Text bold color='cyan'>
             Interval (minutes):{' '}
           </Text>
           <TextInput defaultValue={String(intervalMinutes)} onSubmit={handleIntervalSubmit} />

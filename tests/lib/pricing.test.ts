@@ -1,12 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it } from '@std/testing/bdd';
+import { expect } from '@std/expect';
 import {
-  getModelPricing,
+  calcEstimatedWarmCost,
   calcExpiryCost,
   calcWarmCost,
-  calcEstimatedWarmCost,
   formatUsd,
+  getModelPricing,
   shortenModelName,
-} from '../../src/lib/pricing.js';
+} from '../../src/lib/pricing.ts';
 
 describe('getModelPricing', () => {
   it('returns opus 4.6 pricing', () => {
@@ -51,13 +52,11 @@ describe('getModelPricing', () => {
 
 describe('calcExpiryCost', () => {
   it('computes 1h cache write cost for opus', () => {
-    // 100k tokens at opus $5 base * 2x = $10/MTok = $1.00
     const cost = calcExpiryCost(100_000, 'claude-opus-4-6');
     expect(cost).toBeCloseTo(1.0);
   });
 
   it('computes 1h cache write cost for sonnet', () => {
-    // 100k tokens at sonnet $3 base * 2x = $6/MTok = $0.60
     const cost = calcExpiryCost(100_000, 'claude-sonnet-4-6');
     expect(cost).toBeCloseTo(0.6);
   });
@@ -69,8 +68,6 @@ describe('calcExpiryCost', () => {
 
 describe('calcWarmCost', () => {
   it('computes cost for a warm session (cache reads only)', () => {
-    // 100k read at opus $5 * 0.1 = $0.50/MTok = $0.05
-    // 10 output at opus $25/MTok = negligible
     const cost = calcWarmCost(
       { inputTokens: 0, cacheReadInputTokens: 100_000, cacheCreationInputTokens: 0, outputTokens: 10 },
       'claude-opus-4-6',
@@ -79,7 +76,6 @@ describe('calcWarmCost', () => {
   });
 
   it('computes cost for a cold session (cache write)', () => {
-    // 100k write at opus $5 * 2 = $10/MTok = $1.00
     const cost = calcWarmCost(
       { inputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 100_000, outputTokens: 10 },
       'claude-opus-4-6',
@@ -88,9 +84,6 @@ describe('calcWarmCost', () => {
   });
 
   it('computes mixed read/write cost', () => {
-    // 50k read at sonnet $3 * 0.1 = $0.30/MTok -> $0.015
-    // 10k write at sonnet $3 * 2 = $6/MTok -> $0.06
-    // 5 output at sonnet $15/MTok -> negligible
     const cost = calcWarmCost(
       { inputTokens: 0, cacheReadInputTokens: 50_000, cacheCreationInputTokens: 10_000, outputTokens: 5 },
       'claude-sonnet-4-6',
@@ -101,19 +94,16 @@ describe('calcWarmCost', () => {
 
 describe('calcEstimatedWarmCost', () => {
   it('computes cache read cost for warm sessions', () => {
-    // 100k tokens at opus $5 * 0.1 = $0.50/MTok = $0.05
     const cost = calcEstimatedWarmCost(100_000, true, 'claude-opus-4-6');
     expect(cost).toBeCloseTo(0.05);
   });
 
   it('computes cache write cost for cold sessions', () => {
-    // 100k tokens at opus $5 * 2 = $10/MTok = $1.00
     const cost = calcEstimatedWarmCost(100_000, false, 'claude-opus-4-6');
     expect(cost).toBeCloseTo(1.0);
   });
 
   it('uses sonnet pricing', () => {
-    // 100k tokens at sonnet $3 * 0.1 = $0.03
     const cost = calcEstimatedWarmCost(100_000, true, 'claude-sonnet-4-6');
     expect(cost).toBeCloseTo(0.03);
   });

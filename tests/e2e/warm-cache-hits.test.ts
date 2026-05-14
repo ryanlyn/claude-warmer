@@ -10,8 +10,11 @@
  * turning variable mode switches into brittle pass/fail gates.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it } from '@std/testing/bdd';
+import { expect } from '@std/expect';
 import * as pty from 'node-pty';
+import process from 'node:process';
+import { Buffer } from 'node:buffer';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';

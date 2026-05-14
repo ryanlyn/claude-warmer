@@ -3,9 +3,11 @@ import React from 'react';
 import { render } from 'ink';
 import { parseArgs } from 'node:util';
 import { execFileSync } from 'node:child_process';
-import { App } from './app.js';
+import process from 'node:process';
+import { App } from './app.tsx';
 
 const { values } = parseArgs({
+  args: process.argv.slice(2),
   options: {
     interval: { type: 'string', short: 'i', default: '55' },
     prompt: { type: 'string', default: "Reply 'ok'" },

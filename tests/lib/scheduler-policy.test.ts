@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { nextWarm, nextAfterError } from '../../src/lib/scheduler-policy.js';
-import { WARM_THRESHOLD_MS, SAFETY_MARGIN_MS, FIRST_WARM_JITTER_MS, BACKOFF_SCHEDULE_MS } from '../../src/lib/types.js';
+import { describe, it } from '@std/testing/bdd';
+import { expect } from '@std/expect';
+import { nextAfterError, nextWarm } from '../../src/lib/scheduler-policy.ts';
+import { BACKOFF_SCHEDULE_MS, FIRST_WARM_JITTER_MS, SAFETY_MARGIN_MS, WARM_THRESHOLD_MS } from '../../src/lib/types.ts';
 
 // Deterministic RNG factory for property-style tests: returns the supplied
 // sequence, then cycles. Keeps assertions about randomness reproducible

@@ -66,27 +66,27 @@ export type WarmFn = (sessionId: string, prompt: string, cwd?: string, projectDi
 
 export type WarmPatch =
   | {
-      type: 'started';
-      sessionId: string;
-      startedAt: number;
-    }
+    type: 'started';
+    sessionId: string;
+    startedAt: number;
+  }
   | {
-      type: 'succeeded';
-      sessionId: string;
-      warmedAt: number;
-      nextWarmAt: number;
-      usage: SessionUsage;
-      model: string;
-      costUsd: number;
-    }
+    type: 'succeeded';
+    sessionId: string;
+    warmedAt: number;
+    nextWarmAt: number;
+    usage: SessionUsage;
+    model: string;
+    costUsd: number;
+  }
   | {
-      type: 'failed';
-      sessionId: string;
-      failedAt: number;
-      nextWarmAt: number;
-      error: string;
-      consecutiveErrors: number;
-    };
+    type: 'failed';
+    sessionId: string;
+    failedAt: number;
+    nextWarmAt: number;
+    error: string;
+    consecutiveErrors: number;
+  };
 
 export const WARM_THRESHOLD_MS = 55 * 60 * 1000;
 

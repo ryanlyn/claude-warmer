@@ -1,7 +1,7 @@
-import type { Session, WarmFn, WarmPatch } from './types.js';
-import { FIRST_WARM_JITTER_MS } from './types.js';
-import { nextWarm, nextAfterError } from './scheduler-policy.js';
-import { realClock, type Clock, type Random } from './deps.js';
+import type { Session, WarmFn, WarmPatch } from './types.ts';
+import { FIRST_WARM_JITTER_MS } from './types.ts';
+import { nextAfterError, nextWarm } from './scheduler-policy.ts';
+import { type Clock, type Random, realClock } from './deps.ts';
 
 export class Scheduler {
   private warmFn: WarmFn;

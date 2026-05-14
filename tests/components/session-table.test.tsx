@@ -1,9 +1,10 @@
 import React from 'react';
-import { describe, it, expect } from 'vitest';
+import { describe, it } from '@std/testing/bdd';
+import { expect } from '@std/expect';
 import { render } from 'ink-testing-library';
-import { SessionTable } from '../../src/components/session-table.js';
-import type { Session } from '../../src/lib/types.js';
-import { computeLayout } from '../../src/lib/layout.js';
+import { SessionTable } from '../../src/components/session-table.tsx';
+import type { Session } from '../../src/lib/types.ts';
+import { computeLayout } from '../../src/lib/layout.ts';
 
 const layout = computeLayout(65);
 
@@ -31,7 +32,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
   };
 }
 
-describe('SessionTable', () => {
+describe({ name: 'SessionTable', sanitizeOps: false, sanitizeResources: false }, () => {
   it('renders column headers', () => {
     const { lastFrame } = render(
       <SessionTable sessions={[]} highlightedIndex={0} scrollOffset={0} layout={layout} warmingEnabled={false} />,
@@ -66,8 +67,9 @@ describe('SessionTable', () => {
   });
 
   it('respects scrollOffset and shows visible slice', () => {
-    const sessions = Array.from({ length: 30 }, (_, i) =>
-      makeSession({ sessionId: `session-${String(i).padStart(3, '0')}`, name: `Session ${i}` }),
+    const sessions = Array.from(
+      { length: 30 },
+      (_, i) => makeSession({ sessionId: `session-${String(i).padStart(3, '0')}`, name: `Session ${i}` }),
     );
     const { lastFrame } = render(
       <SessionTable sessions={sessions} highlightedIndex={5} scrollOffset={5} layout={layout} warmingEnabled={false} />,
@@ -103,7 +105,7 @@ describe('SessionTable', () => {
   it('passes warmingActive to session rows', () => {
     const sessions = [makeSession({ isWarm: true, selected: true })];
     const { lastFrame } = render(
-      <SessionTable sessions={sessions} highlightedIndex={0} scrollOffset={0} layout={layout} warmingEnabled={true} />,
+      <SessionTable sessions={sessions} highlightedIndex={0} scrollOffset={0} layout={layout} warmingEnabled />,
     );
     const frame = lastFrame()!;
     expect(frame).toContain('[w]');
