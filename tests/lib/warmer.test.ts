@@ -157,6 +157,40 @@ describe('getClaudePath', () => {
     expect(result).toBe('/usr/local/bin/claude');
     expect(exec.calls.length).toBe(1);
   });
+
+  it('uses `where` and prefers .cmd shim on Windows', () => {
+    const exec = spy((file: string) => {
+      expect(file).toBe('where');
+      return [
+        'C:\\Users\\foo\\AppData\\Roaming\\npm\\claude',
+        'C:\\Users\\foo\\AppData\\Roaming\\npm\\claude.cmd',
+        'C:\\Users\\foo\\AppData\\Roaming\\npm\\claude.ps1',
+      ].join('\r\n') + '\r\n';
+    });
+    const result = getClaudePath(exec as unknown as ExecFileSyncFn, 'win32');
+    expect(result).toBe('C:\\Users\\foo\\AppData\\Roaming\\npm\\claude.cmd');
+  });
+
+  it('uses `which` on non-Windows platforms', () => {
+    const exec = spy((file: string) => {
+      expect(file).toBe('which');
+      return '/usr/local/bin/claude\n';
+    });
+    const result = getClaudePath(exec as unknown as ExecFileSyncFn, 'linux');
+    expect(result).toBe('/usr/local/bin/claude');
+  });
+
+  it('falls back to first Windows candidate when no .exe/.cmd/.bat is present', () => {
+    const exec = spy(() => 'C:\\custom\\path\\claude.ps1\r\n');
+    const result = getClaudePath(exec as unknown as ExecFileSyncFn, 'win32');
+    expect(result).toBe('C:\\custom\\path\\claude.ps1');
+  });
+
+  it('falls back to claude when probe returns empty output', () => {
+    const exec = spy(() => '\r\n\r\n');
+    const result = getClaudePath(exec as unknown as ExecFileSyncFn, 'win32');
+    expect(result).toBe('claude');
+  });
 });
 
 describe('extractUsageFromNewLines', () => {
